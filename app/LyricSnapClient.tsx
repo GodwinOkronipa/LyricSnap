@@ -13,7 +13,9 @@ import { ListMusic, ChevronRight, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { AuthModal } from '@/components/AuthModal';
 
-import { usePaystackPayment } from 'react-paystack';
+import dynamic from 'next/dynamic';
+
+const PaystackButton = dynamic(() => import('@/components/PaystackButton'), { ssr: false });
 
 export default function Home() {
   const [query, setQuery] = useState('');
@@ -95,17 +97,8 @@ export default function Home() {
     }
   };
 
-  // Paystack Config
-  const paystackConfig = {
-    reference: (new Date()).getTime().toString(),
-    email: user?.email || "", 
-    amount: (Number(process.env.NEXT_PUBLIC_GHS_CONVERSION_RATE || 15) * 100), 
-    publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY!,
-    currency: 'GHS',
-    label: 'LyricSnap Studio Pro (Flywheel Technologies)',
-  };
-
-  const initializePayment: any = usePaystackPayment(paystackConfig);
+  // Paystack Config - now handled by PaystackButton
+  const paystackAmount = (Number(process.env.NEXT_PUBLIC_GHS_CONVERSION_RATE || 15) * 100);
 
   const onSuccess = (reference: any) => {
     alert(`Payment Successful! Reference: ${reference.reference}\nNow create an account to activate your Pro status.`);
@@ -127,9 +120,7 @@ export default function Home() {
     if (!error) setIsPro(true);
   };
 
-  const handleUpgradeClick = () => {
-    initializePayment(onSuccess, onClose);
-  };
+  // handleUpgradeClick no longer needed as a separate function
 
   // Load guest usage count on mount if not logged in
   useEffect(() => {
@@ -303,12 +294,15 @@ export default function Home() {
                     <p className="text-xs font-black uppercase tracking-widest text-black/40">Powered by</p>
                     <p className="text-xl font-black tracking-tight text-indigo-600">Flywheel Technologies</p>
                  </div>
-                 <Button 
-                  onClick={handleUpgradeClick}
+                 <PaystackButton 
+                  email={user?.email || ""}
+                  amount={paystackAmount}
+                  onSuccess={onSuccess}
+                  onClose={onClose}
                   className="w-full h-16 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-2xl transition-all active:scale-[0.98]"
                  >
                     {user ? 'Upgrade to Pro' : 'Pay & Create Account'}
-                 </Button>
+                 </PaystackButton>
                  <p className="text-[10px] font-black uppercase tracking-widest text-black/30">One-time payment • No subscription needed</p>
                </div>
             </motion.div>
@@ -673,12 +667,15 @@ export default function Home() {
                     Custom Brand Colors
                   </li>
                 </ul>
-                <Button 
-                  onClick={handleUpgradeClick}
+                <PaystackButton 
+                  email={user?.email || ""}
+                  amount={paystackAmount}
+                  onSuccess={onSuccess}
+                  onClose={onClose}
                   className="w-full h-16 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-2xl transition-all active:scale-[0.98]"
-                >
+                 >
                   {user ? (isPro ? 'Already Pro' : 'Upgrade to Pro') : 'Sign Up to Upgrade'}
-                </Button>
+                 </PaystackButton>
               </div>
             </div>
           </div>
