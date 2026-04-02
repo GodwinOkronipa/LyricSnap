@@ -37,10 +37,11 @@ export async function GET(req: NextRequest) {
 
   // FORCE WATERMARK if not Pro
   const watermark = !isPro;
+  const blur = searchParams.get('blur') || '80';
+  const vignette = searchParams.get('vignette') || '40';
+  const template = searchParams.get('template') || 'classic';
 
   // FREE LIMIT CHECK (Server-side)
-  // Guests: No DB record yet, but we check if session exists. For guests we still rely on client-side count 
-  // for now but we could add IP-based rate limiting if needed.
   if (!isPro && usageCount >= 1 && session) {
      return NextResponse.json({ error: 'Limit reached. Upgrade to Pro.' }, { status: 403 });
   }
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
     // Determine the local URL
     const host = req.headers.get('host') || 'localhost:3000';
     const protocol = host.includes('localhost') ? 'http' : 'https';
-    let renderUrl = `${protocol}://${host}/render?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&artwork=${encodeURIComponent(artwork)}&watermark=${watermark}`;
+    let renderUrl = `${protocol}://${host}/render?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&artwork=${encodeURIComponent(artwork)}&watermark=${watermark}&blur=${blur}&vignette=${vignette}&template=${template}`;
     
     if (lyrics) {
       renderUrl += `&lyrics=${encodeURIComponent(lyrics)}`;
@@ -80,6 +81,7 @@ export async function GET(req: NextRequest) {
     // Target the specific component
     const element = await page.$('#screenshot-target');
     if (!element) {
+      await browser.close();
       throw new Error('Screenshot target not found');
     }
 
@@ -88,11 +90,17 @@ export async function GET(req: NextRequest) {
 
     // Log the generation to Supabase
     try {
-      await supabaseServer.from('generations').insert({
-        song_title: title,
-        artist: artist,
-        // image_url: ... (we would upload to storage here in V3)
-      });
+      if (session) {
+        const newCount = usageCount + 1;
+        await supabaseServer.from('generations').insert({
+          user_id: session.user.id,
+          title: title,
+          artist: artist,
+          artwork: artwork,
+          lyrics: lyrics ? JSON.parse(decodeURIComponent(lyrics)) : []
+        });
+        await supabaseServer.from('profiles').update({ usage_count: newCount }).eq('id', session.user.id);
+      }
     } catch (dbError) {
       console.error('Failed to log generation:', dbError);
     }

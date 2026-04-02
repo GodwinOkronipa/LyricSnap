@@ -11,6 +11,9 @@ interface MusicPlayerProps {
   duration?: string;
   currentTime?: string;
   watermark?: boolean;
+  blurAmount?: number;
+  vignette?: number;
+  template?: 'classic' | 'modern';
 }
 
 export const MusicPlayer: React.FC<MusicPlayerProps> = ({
@@ -23,22 +26,31 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   duration = "3:45",
   currentTime = "1:35",
   watermark = false,
+  blurAmount = 80,
+  vignette = 40,
+  template = 'classic',
 }) => {
   const isLyricMode = lyrics.length > 0;
 
   return (
     <div 
       className={`relative w-[400px] h-[600px] overflow-hidden rounded-[40px] shadow-2xl bg-black flex flex-col items-center p-8 text-white selection:bg-pink-500/30 font-sans`}
+      style={{ 
+        '--artwork-url': `url(${artwork})`,
+        '--blur-amount': `${blurAmount}px`,
+        '--vignette-opacity': vignette / 100
+      } as React.CSSProperties}
       id="screenshot-target"
     >
       {/* Background Blur */}
       <div 
-        className={`absolute inset-0 z-0 scale-110 blur-[80px] bg-cover bg-center transition-all duration-1000 ${isLyricMode ? 'opacity-40' : 'opacity-60'}`}
-        style={{ backgroundImage: `url(${artwork})` } as React.CSSProperties}
+        className={`absolute inset-0 z-0 scale-110 bg-cover bg-center transition-all duration-1000 ${isLyricMode ? 'opacity-40' : 'opacity-60'} [background-image:var(--artwork-url)] [filter:blur(var(--blur-amount))]`}
       />
       
-      {/* Glossy Overlay */}
-      <div className="absolute inset-0 z-10 bg-gradient-to-b from-white/10 to-black/40" />
+      {/* Glossy / Vignette Overlay */}
+      <div 
+        className="absolute inset-0 z-10 [background:radial-gradient(circle_at_center,rgba(255,255,255,0.1)_0%,rgba(0,0,0,var(--vignette-opacity))_100%)]"
+      />
 
       {/* Watermark */}
       {watermark && (
@@ -79,26 +91,28 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
           /* PLAYER MODE */
           <>
             {/* Artwork */}
-            <div className="w-full aspect-square rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] mb-10 transition-transform active:scale-95 duration-500">
-              <img src={artwork} alt={album} className="w-full h-full object-cover" />
+            <div className={`transition-all duration-700 ${template === 'modern' ? 'w-48 h-48 rounded-[32px] mb-6 mt-4 shadow-2xl skew-y-1' : 'w-full aspect-square rounded-2xl mb-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)]'}`}>
+              <img src={artwork} alt={album} className="w-full h-full object-cover rounded-[inherit]" />
             </div>
 
             {/* Info & Metadata */}
-            <div className="w-full flex justify-between items-center mb-6 px-2">
-              <div className="flex flex-col gap-1 overflow-hidden">
-                <h1 className="text-2xl font-bold truncate leading-tight tracking-tight font-serif">{title}</h1>
-                <p className="text-xl text-white/70 truncate tracking-tight">{artist}</p>
+            <div className={`w-full flex flex-col mb-6 px-2 ${template === 'modern' ? 'items-center text-center' : 'items-start'}`}>
+              <div className={`flex flex-col gap-1 overflow-hidden w-full ${template === 'modern' ? 'items-center' : ''}`}>
+                <h1 className={`font-bold leading-tight tracking-tight font-serif ${template === 'modern' ? 'text-3xl mb-1' : 'text-2xl truncate'}`}>{title}</h1>
+                <p className={`text-white/70 tracking-tight ${template === 'modern' ? 'text-xl' : 'text-xl truncate'}`}>{artist}</p>
               </div>
-              <button 
-                aria-label="Add to favorites"
-                className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
-              >
-                <Heart className="w-6 h-6 fill-none stroke-[2px]" />
-              </button>
+              {template !== 'modern' && (
+                <button 
+                  aria-label="Add to favorites"
+                  className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors mt-4 self-end"
+                >
+                  <Heart className="w-6 h-6 fill-none stroke-[2px]" />
+                </button>
+              )}
             </div>
 
             {/* Progress Bar */}
-            <div className="w-full px-2 mb-8">
+            <div className={`w-full px-2 mb-8 ${template === 'modern' ? 'mt-auto' : ''}`}>
               <div className="w-full h-1.5 bg-white/20 rounded-full relative overflow-hidden group">
                 <div 
                   className="absolute left-0 top-0 h-full bg-white rounded-full transition-all duration-500"

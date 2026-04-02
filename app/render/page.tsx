@@ -12,6 +12,9 @@ function RenderContent() {
   const artwork = searchParams.get('artwork') || '';
   const lyricsParam = searchParams.get('lyrics');
   const watermark = searchParams.get('watermark') === 'true';
+  const blurAmount = parseInt(searchParams.get('blur') || '80');
+  const vignette = parseInt(searchParams.get('vignette') || '40');
+  const template = (searchParams.get('template') as 'classic' | 'modern') || 'classic';
   const lyrics = lyricsParam ? JSON.parse(decodeURIComponent(lyricsParam)) : [];
 
   return (
@@ -26,6 +29,9 @@ function RenderContent() {
         artwork={artwork}
         lyrics={lyrics}
         watermark={watermark}
+        blurAmount={blurAmount}
+        vignette={vignette}
+        template={template}
       />
     </div>
   );

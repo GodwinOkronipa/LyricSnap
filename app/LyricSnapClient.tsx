@@ -9,13 +9,15 @@ import { MusicPlayer } from '@/components/MusicPlayer';
 import { Button } from '@/components/ui/button';
 import { JsonLd, webAppSchema, howToSchema } from '@/components/JsonLd';
 import { analytics } from '@/lib/analytics';
-import { ListMusic, ChevronRight, X } from 'lucide-react';
+import { ListMusic, ChevronRight, X, Clock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { AuthModal } from '@/components/AuthModal';
 
 import dynamic from 'next/dynamic';
 
 const PaystackButton = dynamic(() => import('@/components/PaystackButton'), { ssr: false });
+
+const ADMIN_EMAILS = ['godwinokro2020@gmail.com'];
 
 export default function Home() {
   const [query, setQuery] = useState('');
@@ -32,26 +34,51 @@ export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [isPro, setIsPro] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
+  const [pendingProActivation, setPendingProActivation] = useState(false);
+  
+  // Studio Customization State
+  const [blurAmount, setBlurAmount] = useState(80);
+  const [vignette, setVignette] = useState(40);
+  const [template, setTemplate] = useState<'classic' | 'modern'>('classic');
+  const [waitlistJoined, setWaitlistJoined] = useState(false);
 
   const previewRef = useRef<HTMLDivElement>(null);
 
   // Auth & Session management
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) fetchUserProfile(session.user.id);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        if (ADMIN_EMAILS.includes(currentUser.email!)) {
+           setIsPro(true);
+        }
+        fetchUserProfile(currentUser.id, currentUser.email!);
+        // Handle pending activation if user was already logged in but refresh happened
+        if (pendingProActivation) updateProStatus(currentUser.id);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) fetchUserProfile(session.user.id);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        if (ADMIN_EMAILS.includes(currentUser.email!)) {
+           setIsPro(true);
+        }
+        fetchUserProfile(currentUser.id, currentUser.email!);
+        if (pendingProActivation) {
+           updateProStatus(currentUser.id);
+           setPendingProActivation(false);
+        }
+      }
       else setIsPro(false);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [pendingProActivation]);
 
-  const fetchUserProfile = async (userId: string) => {
+  const fetchUserProfile = async (userId: string, email: string) => {
     const { data } = await supabase
       .from('profiles')
       .select('usage_count, is_pro')
@@ -60,7 +87,8 @@ export default function Home() {
     
     if (data) {
       setUsageCount(data.usage_count);
-      setIsPro(data.is_pro);
+      // Force Pro if admin, otherwise use DB value
+      setIsPro(ADMIN_EMAILS.includes(email) ? true : data.is_pro);
     }
     fetchHistory(userId);
   };
@@ -97,12 +125,42 @@ export default function Home() {
     }
   };
 
-  // Paystack Config - now handled by PaystackButton
-  const paystackAmount = (Number(process.env.NEXT_PUBLIC_GHS_CONVERSION_RATE || 15) * 100);
+  // Countdown Timer Logic
+  const [timeLeft, setTimeLeft] = useState<{h: number, m: number, s: number}>({ h: 2, m: 0, s: 0 });
+  
+  useEffect(() => {
+    const timerKey = 'lyric_snap_timer_end';
+    let endTime = localStorage.getItem(timerKey);
+    
+    if (!endTime) {
+      endTime = (Date.now() + 2 * 60 * 60 * 1000).toString();
+      localStorage.setItem(timerKey, endTime);
+    }
+
+    const interval = setInterval(() => {
+      const remaining = parseInt(endTime!) - Date.now();
+      if (remaining <= 0) {
+        clearInterval(interval);
+        setTimeLeft({ h: 0, m: 0, s: 0 });
+      } else {
+        setTimeLeft({
+          h: Math.floor((remaining / (1000 * 60 * 60)) % 24),
+          m: Math.floor((remaining / 1000 / 60) % 60),
+          s: Math.floor((remaining / 1000) % 60)
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Paystack Config - 0.49 instead of 0.99
+  const paystackAmount = (0.49 * Number(process.env.NEXT_PUBLIC_GHS_CONVERSION_RATE || 15) * 100);
 
   const onSuccess = (reference: any) => {
-    alert(`Payment Successful! Reference: ${reference.reference}\nNow create an account to activate your Pro status.`);
+    console.log('Payment Success:', reference);
     if (!user) {
+      setPendingProActivation(true);
       setShowAuthModal(true);
       setShowUpgradeModal(false);
     } else {
@@ -117,7 +175,10 @@ export default function Home() {
 
   const updateProStatus = async (userId: string) => {
     const { error } = await supabase.from('profiles').update({ is_pro: true }).eq('id', userId);
-    if (!error) setIsPro(true);
+    if (!error) {
+      setIsPro(true);
+      setPendingProActivation(false);
+    }
   };
 
   // handleUpgradeClick no longer needed as a separate function
@@ -198,6 +259,9 @@ export default function Home() {
         artist: selectedSong.artist,
         artwork: selectedSong.artwork,
         watermark: (!isPro).toString(),
+        template: template,
+        blur: blurAmount.toString(),
+        vignette: vignette.toString(),
       });
 
       if (selectedLines.length > 0) {
@@ -477,6 +541,10 @@ export default function Home() {
                             album={selectedSong.album}
                             artwork={selectedSong.artwork}
                             lyrics={selectedLines}
+                            blurAmount={blurAmount}
+                            vignette={vignette}
+                            template={template}
+                            watermark={!isPro}
                           />
                           {selectedLines.length > 0 && (
                             <button 
@@ -523,6 +591,68 @@ export default function Home() {
                               </div>
                             </div>
                           )}
+                        </div>
+
+                        {/* Studio Customization (Pro Only) */}
+                        <div className="w-full space-y-6 mb-8 mt-2 p-6 bg-white/5 border border-white/10 rounded-[32px] backdrop-blur-xl">
+                          <div className="flex items-center justify-between">
+                             <h4 className="text-xs font-black uppercase tracking-widest text-white/40">Studio Controls</h4>
+                             {!isPro && (
+                               <span className="text-[10px] font-black bg-pink-500 text-white px-2 py-0.5 rounded-full">PRO ONLY</span>
+                             )}
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                             <button 
+                              disabled={!isPro}
+                              onClick={() => setTemplate('classic')}
+                              type="button"
+                              className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'classic' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                             >
+                               Classic
+                             </button>
+                             <button 
+                              disabled={!isPro}
+                              type="button"
+                              onClick={() => setTemplate('modern')}
+                              className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'modern' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                             >
+                               Modern
+                             </button>
+                          </div>
+
+                          <div className="space-y-4 pt-2">
+                             <div className="space-y-2">
+                               <div className="flex justify-between text-[10px] font-bold text-white/30 uppercase tracking-widest">
+                                 <span>Studio Blur</span>
+                                 <span>{blurAmount}px</span>
+                               </div>
+                               <input 
+                                 type="range" min="0" max="150" step="10"
+                                 value={blurAmount}
+                                 disabled={!isPro}
+                                 aria-label="Studio Blur Amount"
+                                 title="Adjust the background blur intensity"
+                                 onChange={(e) => setBlurAmount(parseInt(e.target.value))}
+                                 className="w-full accent-pink-500 opacity-60 hover:opacity-100 transition-opacity"
+                               />
+                             </div>
+                             <div className="space-y-2">
+                               <div className="flex justify-between text-[10px] font-bold text-white/30 uppercase tracking-widest">
+                                 <span>Vignette Mood</span>
+                                 <span>{vignette}%</span>
+                               </div>
+                               <input 
+                                 type="range" min="0" max="100" step="5"
+                                 value={vignette}
+                                 disabled={!isPro}
+                                 aria-label="Vignette Intensity"
+                                 title="Adjust the dark overlay intensity around the edges"
+                                 onChange={(e) => setVignette(parseInt(e.target.value))}
+                                 className="w-full accent-pink-500 opacity-60 hover:opacity-100 transition-opacity"
+                               />
+                             </div>
+                          </div>
                         </div>
 
                         <Button 
@@ -623,48 +753,87 @@ export default function Home() {
 
         {/* PRICING */}
         <section id="pricing" className="py-32 bg-white/[0.02] border-t border-white/10 backdrop-blur-3xl">
-          <div className="max-w-4xl mx-auto px-8 text-center">
-            <h2 className="text-7xl font-heading mb-20 tracking-tighter">Choose your level.</h2>
+          <div className="max-w-5xl mx-auto px-8 text-center">
+            <h2 className="text-7xl font-heading mb-6 tracking-tighter">Choose your level.</h2>
+            <p className="text-white/40 mb-20 font-medium max-w-xl mx-auto italic uppercase tracking-[0.1em] text-xs">For artists, curators, and those who never settle for basic.</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              <div className="p-12 rounded-[56px] bg-white/[0.05] border border-white/10 text-left space-y-8 backdrop-blur-md shadow-xl">
+              {/* Standard */}
+              <div className="p-12 rounded-[56px] bg-white/[0.05] border border-white/10 text-left space-y-8 backdrop-blur-md shadow-xl group/plan">
                 <div>
-                  <h3 className="text-2xl font-bold">Standard</h3>
+                  <h3 className="text-2xl font-bold flex items-center gap-2">
+                    Standard
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/20 bg-white/5 py-1 px-3 rounded-full">Entry</span>
+                  </h3>
                   <p className="text-5xl font-heading mt-2">Free</p>
                 </div>
-                <ul className="space-y-5 text-white/50 text-base font-medium">
+                <ul className="space-y-5 text-white/50 text-sm font-bold">
                   <li className="flex gap-3 items-center">
                     <div className="p-1 bg-white/10 rounded-full"><ChevronRight className="w-4 h-4" /></div>
-                    1 Free Screenshot
+                    1 High-Res Snapshot
                   </li>
                   <li className="flex gap-3 items-center">
                     <div className="p-1 bg-white/10 rounded-full"><ChevronRight className="w-4 h-4" /></div>
-                    All Font Sizes
+                    Standard Studio UI
+                  </li>
+                  <li className="flex gap-3 items-center">
+                    <div className="p-1 bg-white/10 rounded-full"><ChevronRight className="w-4 h-4" /></div>
+                    Guest History (Local Only)
                   </li>
                   <li className="flex gap-3 items-center opacity-30">
-                    <X className="w-5 h-5" />
+                    <X className="w-4 h-4" />
                     Watermark included
                   </li>
                 </ul>
-                <Button className="w-full h-16 bg-white/10 border border-white/20 hover:bg-white/20 rounded-full font-bold text-lg">Current Plan</Button>
+                <Button className="w-full h-16 bg-white/10 border border-white/20 hover:bg-white/20 rounded-full font-black uppercase tracking-widest text-xs">Current Level</Button>
               </div>
-              <div className="p-12 rounded-[56px] bg-white text-black text-left space-y-8 relative overflow-hidden shadow-[0_30px_100px_rgba(255,255,255,0.1)]">
-                <div className="absolute top-8 right-8 bg-pink-500 text-white text-[10px] font-black uppercase tracking-widest py-1.5 px-4 rounded-full">POPULAR</div>
+
+              {/* Studio Pro */}
+              <div className="p-12 rounded-[56px] bg-white text-black text-left space-y-8 relative overflow-hidden shadow-[0_30px_100px_rgba(255,255,255,0.1)] group/pro border-2 border-pink-500/20">
+                <div className="absolute top-8 right-8 bg-pink-500 text-white text-[10px] font-black uppercase tracking-widest py-1.5 px-4 rounded-full animate-pulse">FLASH SALE</div>
                 <div>
                   <h3 className="text-2xl font-bold">Studio Pro</h3>
-                  <p className="text-5xl font-heading mt-2">$0.99</p>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-2xl font-heading text-black/30 line-through tracking-tighter">$0.99</span>
+                    <span className="text-5xl font-heading text-pink-600 tracking-tighter">$0.49</span>
+                  </div>
+                  <div className="mt-4 inline-flex items-center gap-2 bg-pink-500/10 text-pink-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
+                    <Clock className="w-3 h-3" />
+                    Deal ends in: {timeLeft.h}h {timeLeft.m}m {timeLeft.s}s
+                  </div>
                 </div>
-                <ul className="space-y-5 text-black/70 text-base font-bold">
+
+                <div className="py-1 border-y border-black/5">
+                   <p className="text-[10px] font-black text-center uppercase tracking-[0.2em] text-black/40">Lifetime Access • One-time Payment</p>
+                </div>
+
+                <ul className="space-y-4 text-black/80 text-sm font-black">
                   <li className="flex gap-3 items-center">
-                    <div className="p-1 bg-black/10 rounded-full"><ChevronRight className="w-4 h-4" /></div>
-                    Unlimited Exports
+                    <div className="p-1 bg-pink-500 rounded-full"><ChevronRight className="w-4 h-4 text-white" /></div>
+                    🚫 100% Watermark-Free
                   </li>
                   <li className="flex gap-3 items-center">
-                    <div className="p-1 bg-black/10 rounded-full"><ChevronRight className="w-4 h-4" /></div>
-                    Zero Watermarks
+                    <div className="p-1 bg-pink-500 rounded-full"><ChevronRight className="w-4 h-4 text-white" /></div>
+                    ♾️ Unlimited High-Res Exports
                   </li>
                   <li className="flex gap-3 items-center">
-                    <div className="p-1 bg-black/10 rounded-full"><ChevronRight className="w-4 h-4" /></div>
-                    Custom Brand Colors
+                    <div className="p-1 bg-pink-500 rounded-full"><ChevronRight className="w-4 h-4 text-white" /></div>
+                    ☁️ Cloud Persistence (Save forever)
+                  </li>
+                  <li className="flex gap-3 items-center">
+                    <div className="p-1 bg-pink-500 rounded-full"><ChevronRight className="w-4 h-4 text-white" /></div>
+                    🎨 Custom Brand Colors & Meshes
+                  </li>
+                  <li className="flex gap-3 items-center">
+                    <div className="p-1 bg-pink-500 rounded-full"><ChevronRight className="w-4 h-4 text-white" /></div>
+                    🖼️ Access to Multi-Templates
+                  </li>
+                  <li className="flex gap-3 items-center">
+                    <div className="p-1 bg-pink-500 rounded-full"><ChevronRight className="w-4 h-4 text-white" /></div>
+                    🎤 Lyrics Video Generator (Coming Soon)
+                  </li>
+                  <li className="flex gap-3 items-center">
+                    <div className="p-1 bg-pink-500 rounded-full"><ChevronRight className="w-4 h-4 text-white" /></div>
+                    ✨ Priority Studio Rendering
                   </li>
                 </ul>
                 <PaystackButton 
@@ -672,9 +841,12 @@ export default function Home() {
                   amount={paystackAmount}
                   onSuccess={onSuccess}
                   onClose={onClose}
-                  className="w-full h-16 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-2xl transition-all active:scale-[0.98]"
+                  className="w-full h-16 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-2xl transition-all active:scale-[0.98] group/btn"
                  >
-                  {user ? (isPro ? 'Already Pro' : 'Upgrade to Pro') : 'Sign Up to Upgrade'}
+                  <span className="flex items-center justify-center gap-2">
+                    {user ? (isPro ? 'Already Pro' : 'Upgrade to Pro') : 'Unlock Studio Pro'}
+                    <ChevronRight className="w-5 h-5 group-hover/btn:translate-x-1 transition-transform" />
+                  </span>
                  </PaystackButton>
               </div>
             </div>
@@ -691,6 +863,29 @@ export default function Home() {
                 <h2 className="text-4xl font-heading tracking-tight">My Snaps</h2>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                {/* Coming Soon Teaser */}
+                <motion.div 
+                  whileHover={{ scale: 1.02 }}
+                  className="group relative aspect-[3/4] rounded-3xl overflow-hidden border-2 border-dashed border-white/10 bg-white/[0.02] p-8 flex flex-col items-center justify-center text-center gap-6 backdrop-blur-md"
+                >
+                  <div className="w-16 h-16 bg-gradient-to-tr from-pink-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-pink-500/20 group-hover:rotate-12 transition-transform">
+                    <Music className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-black bg-pink-500 text-white px-3 py-1 rounded-full uppercase tracking-widest">Studio Exclusive</span>
+                    <h3 className="text-xl font-bold tracking-tight mt-2">Lyrics Video <br /> Generator</h3>
+                    <p className="text-white/30 text-[10px] font-medium leading-relaxed">Motion-synced lyric videos for TikTok & Reels.</p>
+                  </div>
+                  
+                  <button 
+                    onClick={() => setWaitlistJoined(true)}
+                    disabled={waitlistJoined}
+                    className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${waitlistJoined ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white text-black hover:bg-pink-500 hover:text-white shadow-xl'}`}
+                  >
+                    {waitlistJoined ? '✓ Joined Waitlist' : 'Join Waitlist'}
+                  </button>
+                </motion.div>
+
                 {history.map((item) => (
                   <motion.div 
                     key={item.id}
@@ -746,6 +941,54 @@ export default function Home() {
             </div>
           </section>
         )}
+        {/* SEO SECTION: THE ULTIMATE GUIDE */}
+        <section id="guide" className="py-32 border-t border-white/5 bg-black/40">
+          <div className="max-w-5xl mx-auto px-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-start">
+              <div className="space-y-6">
+                <h2 className="text-4xl font-heading tracking-tight leading-tight">
+                  The Aesthetic Music <br /> <span className="text-pink-500 italic">Screenshot Generator</span> <br /> for Creators.
+                </h2>
+                <p className="text-white/40 leading-relaxed">
+                  In a world of generic social media posts, your music deserves to stand out. LyricSnap is the premium studio tool designed for artists, curators, and music enthusiasts who crave that high-end Apple Music aesthetic.
+                </p>
+                <div className="pt-4 space-y-4">
+                  <div className="flex gap-4">
+                    <div className="w-1 h-12 bg-pink-500 rounded-full" />
+                    <p className="text-sm font-medium text-white/60 italic">
+                      "We don't just generate images; we curate your digital musical identity."
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-8 text-sm text-white/30 leading-relaxed">
+                <p>
+                  Whether you're looking for an **Apple Music screenshot generator** or a **TikTok music player creator**, LyricSnap provides the most accurate and aesthetically pleasing renders on the web. Our engine matches colors dynamically to your album art, ensuring every "Now Playing" card is a masterpiece.
+                </p>
+                <p>
+                  By upgrading to **Studio Pro**, you unlock the ability to **save your generations** to the cloud. This means you can create your perfect lyric snap on your laptop and access it instantly on your phone for that perfect Instagram Story post. No more manual transfers—just pure, seamless creativity.
+                </p>
+              </div>
+            </div>
+
+            {/* FAQ */}
+            <div className="mt-32 grid grid-cols-1 md:grid-cols-3 gap-12 border-t border-white/5 pt-20">
+              <div>
+                <h4 className="font-bold text-lg mb-4 text-white">How do I use the Apple Music Story generator?</h4>
+                <p className="text-sm text-white/40 leading-relaxed">Simply search for any song from the 100M+ track database, select your favorite lyrics, and click generate. You'll get a pixel-perfect render ready for IG Stories.</p>
+              </div>
+              <div>
+                <h4 className="font-bold text-lg mb-4 text-white">Is there a limit on free screenshots?</h4>
+                <p className="text-sm text-white/40 leading-relaxed">Guest users can generate 1 free high-res snap. To unlock unlimited exports and remove the watermark, you can upgrade to Studio Pro for a one-time fee of $0.99.</p>
+              </div>
+              <div>
+                <h4 className="font-bold text-lg mb-4 text-white">Can I save my lyric snaps for later?</h4>
+                <p className="text-sm text-white/40 leading-relaxed">Yes! With Studio Pro, all your generations are synced to your account. You can view, re-download, or edit them anytime from your private dashboard.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
       </main>
 
       {/* Footer */}
