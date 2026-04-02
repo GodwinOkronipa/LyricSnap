@@ -208,6 +208,7 @@ export function AuthModal({ isOpen, onClose, onSuccess, initialMessage }: AuthMo
                   )}
 
                   <Button
+                    type="submit"
                     disabled={loading}
                     className="w-full h-16 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-2xl transition-all active:scale-[0.98] group"
                   >
@@ -220,6 +221,7 @@ export function AuthModal({ isOpen, onClose, onSuccess, initialMessage }: AuthMo
                       </span>
                     )}
                   </Button>
+
                 </form>
               </div>
 
