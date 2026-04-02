@@ -1,26 +1,21 @@
-import { MetadataRoute } from "next";
+import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://lyricsnap.app";
+  const baseUrl = 'https://lyricsnap.app'; // Replace with your production domain
 
   return [
     {
       url: baseUrl,
       lastModified: new Date(),
-      changeFrequency: "daily",
+      changeFrequency: 'daily',
       priority: 1,
     },
     {
-      url: `${baseUrl}/apple-music-screenshot-generator`,
+      url: `${baseUrl}/check`,
       lastModified: new Date(),
-      changeFrequency: "weekly",
-      priority: 0.8,
+      changeFrequency: 'weekly',
+      priority: 0.5,
     },
-    {
-      url: `${baseUrl}/fake-music-player-generator`,
-      lastModified: new Date(),
-      changeFrequency: "weekly",
-      priority: 0.7,
-    },
+    // Add dynamic routes if you ever implement them (e.g., song-specific landing pages)
   ];
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Download, Music, Shield, Zap, Sparkles, LogOut, History } from 'lucide-react';
+import { Search, Download, Music, Shield, Zap, Sparkles, LogOut, History, Share2, Link } from 'lucide-react';
 import { searchSongs, Song } from '@/lib/itunes';
 import { fetchLyrics } from '@/lib/lyrics';
 import { MusicPlayer } from '@/components/MusicPlayer';
@@ -516,6 +516,27 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     }
 
 
+  };
+  
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText('https://lyricsnap.app');
+    alert('Link copied to clipboard! Share it with your friends.');
+  };
+
+  const handleSystemShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'LyricSnap',
+          text: `Check out my lyric snap for ${selectedSong?.title}!`,
+          url: 'https://lyricsnap.app',
+        });
+      } catch (err) {
+        console.error('Share failed:', err);
+      }
+    } else {
+      copyToClipboard();
+    }
   };
 
 
@@ -1060,7 +1081,35 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
 
 
 
-                        {/* Studio Customization (Moved here for better mobile UX) */}
+                         {/* SHARE BUTTONS */}
+                         <div className="flex items-center gap-2 mb-8 w-full">
+                           <button
+                             onClick={copyToClipboard}
+                             title="Copy App Link"
+                             className="flex-1 h-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-2 hover:bg-white/10 transition-all group/share"
+                           >
+                             <Link className="transition-all group-hover/share:text-pink-500 w-4 h-4" />
+                             <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover/share:text-white">Copy Link</span>
+                           </button>
+                           <button
+                             onClick={() => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Check out this lyric snap I made for ${selectedSong?.title} by ${selectedSong?.artist} on @LyricSnap!`)}&url=https://lyricsnap.app`, '_blank')}
+                             title="Share on X"
+                             className="w-12 h-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-white/10 transition-all group/share"
+                           >
+                             <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4 fill-white/40 group-hover/share:fill-white transition-colors">
+                               <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932L18.901 1.153zM17.61 20.644h2.039L6.486 3.24H4.298L17.61 20.644z"></path>
+                             </svg>
+                           </button>
+                           <button
+                             onClick={handleSystemShare}
+                             title="Share"
+                             className="w-12 h-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-white/10 transition-all group/share"
+                           >
+                             <Share2 className="w-4 h-4 text-white/40 group-hover/share:text-pink-500" />
+                           </button>
+                         </div>
+
+                         {/* Studio Customization (Moved here for better mobile UX) */}
                         <div 
                           onClick={() => !isPro && scrollToPro()}
                           className={`w-full space-y-6 p-6 bg-white/5 border border-white/10 rounded-[32px] backdrop-blur-xl transition-all ${!isPro ? 'cursor-pointer hover:border-pink-500/30' : ''}`}

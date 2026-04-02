@@ -23,7 +23,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "LyricSnap | The Better Alternative to Spotify's Lyric Screenshots",
+    default: "LyricSnap | Apple Music Lyric Generator (Spotify Alternative)",
     template: "%s | LyricSnap",
   },
   description: "Stop using Spotify's basic sharing UI. Create stunning, premium music screenshots for Instagram and TikTok. The high-res alternative to Spotify and Apple Music's default lyric sharing.",
