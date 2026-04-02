@@ -15,7 +15,7 @@ import { AuthModal } from '@/components/AuthModal';
 
 import dynamic from 'next/dynamic';
 
-const PaystackButton = dynamic(() => import('@/components/PaystackButton'), { ssr: false });
+const PaystackButton = dynamic<any>(() => import('@/components/PaystackButton'), { ssr: false });
 
 const ADMIN_EMAILS = ['godwinokro2020@gmail.com'];
 
@@ -69,7 +69,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
 
   // Auth & Session management
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: any } }) => {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
@@ -82,7 +82,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
