@@ -29,3 +29,21 @@ CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING
 -- Policies for Generations
 CREATE POLICY "Users can view own generations" ON public.generations FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own generations" ON public.generations FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+/**
+ * ⚡️ AUTOMATIC PROFILE CREATION
+ * This trigger fires every time a new user signs up via Supabase Auth.
+ */
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, is_pro, usage_count)
+  VALUES (new.id, new.email, false, 0);
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger the function every time a user is created
+CREATE OR REPLACE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
