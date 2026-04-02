@@ -611,7 +611,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
             <div id="tool" className="max-w-5xl mx-auto bg-white/[0.05] border border-white/15 rounded-[48px] p-4 md:p-12 backdrop-blur-3xl shadow-2xl relative overflow-hidden group/tool">
               <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 to-blue-500/5 opacity-0 group-hover/tool:opacity-100 transition-opacity pointer-events-none" />
               
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start relative z-10">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-start relative z-10">
                 {/* Left: Search & Controls */}
                 <div className="space-y-8">
                   <div className="text-left space-y-2">
@@ -682,64 +682,67 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                   </form>
 
                   {/* Results scroll area */}
-                  <div className="min-h-[300px] max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
-                    <AnimatePresence mode="wait">
-                      {loading && (
-                        <div className="flex flex-col items-center justify-center py-20 opacity-30">
-                          <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin mb-4" />
-                          <p className="text-sm font-bold uppercase tracking-widest">Searching...</p>
-                        </div>
-                      )}
-                      
-                      {!loading && results.length > 0 && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-2">
-                          {results.map((song) => (
-                            <div
-                              key={song.id}
-                              onClick={() => {
-                                setSelectedSong(song);
-                                analytics.trackSelectSong(song.title, song.artist);
-                              }}
-                              className={`flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border ${selectedSong?.id === song.id ? 'bg-white/15 border-white/25 shadow-xl' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
-                            >
-                              <img src={song.artwork} alt={`${song.title} by ${song.artist}`} className="w-14 h-14 rounded-lg object-cover shadow-lg" />
-                              <div className="flex-1 overflow-hidden text-left">
-                                <p className="font-bold truncate text-lg">{song.title}</p>
-                                <p className="text-white/40 text-xs truncate uppercase tracking-wider">{song.artist}</p>
+                  {(results.length > 0 || (!query && !selectedSong) || loading) && (
+                    <div className={`transition-all duration-500 overflow-y-auto pr-2 custom-scrollbar ${(results.length > 0 || (!query && !selectedSong)) ? 'min-h-[300px] max-h-[450px]' : 'max-h-[450px] min-h-[50px]'}`}>
+                      <AnimatePresence mode="wait">
+                        {loading && (
+                          <div className="flex flex-col items-center justify-center py-20 opacity-30">
+                            <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin mb-4" />
+                            <p className="text-sm font-bold uppercase tracking-widest">Searching...</p>
+                          </div>
+                        )}
+                        
+                        {!loading && results.length > 0 && (
+                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-2">
+                            {results.map((song) => (
+                              <div
+                                key={song.id}
+                                onClick={() => {
+                                  setSelectedSong(song);
+                                  analytics.trackSelectSong(song.title, song.artist);
+                                }}
+                                className={`flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border ${selectedSong?.id === song.id ? 'bg-white/15 border-white/25 shadow-xl' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
+                              >
+                                <img src={song.artwork} alt={`${song.title} by ${song.artist}`} className="w-14 h-14 rounded-lg object-cover shadow-lg" />
+                                <div className="flex-1 overflow-hidden text-left">
+                                  <p className="font-bold truncate text-lg">{song.title}</p>
+                                  <p className="text-white/40 text-xs truncate uppercase tracking-wider">{song.artist}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </motion.div>
+                        )}
+
+                        {!loading && results.length === 0 && !query && !selectedSong && (
+                          <div className="grid grid-cols-1 gap-4">
+                            <div className="p-8 rounded-[32px] bg-white/[0.08] border border-white/10 flex gap-6 text-left backdrop-blur-md">
+                              <div className="w-12 h-12 bg-pink-500/20 rounded-2xl flex items-center justify-center flex-shrink-0">
+                                  <Zap className="w-6 h-6 text-pink-500" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-lg">Instant Search</p>
+                                <p className="text-white/40">Find tracks from Apple Music in milliseconds.</p>
                               </div>
                             </div>
-                          ))}
-                        </motion.div>
-                      )}
+                            <div className="p-8 rounded-[32px] bg-white/[0.08] border border-white/10 flex gap-6 text-left backdrop-blur-md">
+                              <div className="w-12 h-12 bg-orange-400/20 rounded-2xl flex items-center justify-center flex-shrink-0">
+                                  <Sparkles className="w-6 h-6 text-orange-400" />
+                              </div>
+                              <div>
+                                <p className="font-bold text-lg">Studio Quality</p>
+                                <p className="text-white/40">Ultra high-res exports ready for social media.</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
 
-                      {!loading && results.length === 0 && !query && (
-                        <div className="grid grid-cols-1 gap-4">
-                          <div className="p-8 rounded-[32px] bg-white/[0.08] border border-white/10 flex gap-6 text-left backdrop-blur-md">
-                            <div className="w-12 h-12 bg-pink-500/20 rounded-2xl flex items-center justify-center flex-shrink-0">
-                                <Zap className="w-6 h-6 text-pink-500" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-lg">Instant Search</p>
-                              <p className="text-white/40">Find tracks from Apple Music in milliseconds.</p>
-                            </div>
-                          </div>
-                          <div className="p-8 rounded-[32px] bg-white/[0.08] border border-white/10 flex gap-6 text-left backdrop-blur-md">
-                            <div className="w-12 h-12 bg-orange-400/20 rounded-2xl flex items-center justify-center flex-shrink-0">
-                                <Sparkles className="w-6 h-6 text-orange-400" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-lg">Studio Quality</p>
-                              <p className="text-white/40">Ultra high-res exports ready for social media.</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </AnimatePresence>
-                  </div>
                 </div>
 
                 {/* Right: Preview & Download */}
-                <div ref={previewRef} className="flex flex-col items-center justify-center pt-8 lg:pt-0">
+                <div ref={previewRef} className={`flex flex-col items-center justify-center lg:pt-0 ${selectedSong ? 'pt-0' : 'pt-8'}`}>
                   <AnimatePresence mode="wait">
                     {selectedSong ? (
                       <motion.div
@@ -749,7 +752,8 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="flex flex-col items-center w-full"
                       >
-                        <div className="relative group/player mb-10 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[400px] scale-[0.8] xs:scale-[0.9] sm:scale-100">
+                        <div className="relative group/player mb-6 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[400px] flex justify-center scale-[0.8] xs:scale-[0.9] sm:scale-100 origin-center mx-auto">
+
                           <MusicPlayer 
                             title={selectedSong.title}
                             artist={selectedSong.artist}
@@ -778,27 +782,28 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                             <Button 
                               onClick={handleFetchLyrics}
                               disabled={fetchingLyrics}
-                              className="w-full h-16 bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-500 text-white hover:opacity-90 rounded-full font-black text-lg flex gap-3 shadow-[0_15px_40px_rgba(124,58,237,0.3)] border-none transition-all active:scale-[0.98] group/lyrics"
+                              className="w-full h-14 bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-500 text-white hover:brightness-110 rounded-2xl font-black text-sm md:text-base flex gap-3 shadow-[0_15px_30px_-5px_rgba(124,58,237,0.4)] border border-white/20 transition-all active:scale-[0.98] group/lyrics relative overflow-hidden"
                             >
+                              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/lyrics:opacity-100 transition-opacity" />
                               {fetchingLyrics ? (
-                                <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                               ) : (
-                                <Sparkles className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                                <Sparkles className="w-5 h-5 group-hover/lyrics:rotate-12 transition-transform" />
                               )}
                               Load & Customize Lyrics
                             </Button>
                           ) : (
-                            <div className="bg-white/10 border border-white/20 rounded-[32px] p-6 overflow-hidden backdrop-blur-xl">
-                              <div className="flex justify-between items-center mb-4 px-2">
-                                <div className="flex flex-col"><span className="text-[10px] font-black uppercase tracking-widest text-white/30 leading-none mb-1">Lyric Selection</span><span className="text-[10px] text-white/40">Choose up to 5 lines</span></div>
-                                <span className="text-xs font-black text-pink-500 bg-pink-500/10 px-2 py-1 rounded-lg border border-pink-500/20">{selectedLines.length}/5</span>
+                            <div className="bg-white/10 border border-white/20 rounded-[24px] p-5 overflow-hidden backdrop-blur-xl">
+                              <div className="flex justify-between items-center mb-3 px-1">
+                                <div className="flex flex-col"><span className="text-[9px] font-black uppercase tracking-widest text-white/30 leading-none mb-1">Lyric Selection</span><span className="text-[9px] text-white/40">Choose up to 5 lines</span></div>
+                                <span className="text-[10px] font-black text-pink-500 bg-pink-500/10 px-2 py-0.5 rounded-lg border border-pink-500/20">{selectedLines.length}/5</span>
                               </div>
-                              <div className="max-h-[320px] shadow-inner group/lyrics-window overflow-y-auto px-1 flex flex-col gap-1 custom-scrollbar">
+                              <div className="max-h-[300px] shadow-inner group/lyrics-window overflow-y-auto px-1 flex flex-col gap-1 custom-scrollbar">
                                 {lyrics.slice(0, 40).map((line, i) => (
                                   <button
                                     key={i}
                                     onClick={() => toggleLine(line)}
-                                    className={`p-4 rounded-2xl text-left text-sm transition-all duration-300 relative overflow-hidden group/line ${selectedLines.includes(line) ? 'bg-white text-black font-bold shadow-xl scale-[1.02]' : 'hover:bg-white/10 text-white/50'}`}
+                                    className={`p-3.5 rounded-xl text-left text-xs transition-all duration-300 relative overflow-hidden group/line ${selectedLines.includes(line) ? 'bg-white text-black font-bold shadow-lg scale-[1.01]' : 'hover:bg-white/10 text-white/50'}`}
                                   >
                                     {line}
                                   </button>
@@ -812,23 +817,28 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         <Button 
                           onClick={handleDownload}
                           disabled={generating}
-                          className="w-full h-24 bg-gradient-to-br from-pink-500 via-rose-500 to-orange-500 text-white hover:opacity-95 rounded-[32px] text-2xl font-black transition-all flex flex-col items-center justify-center gap-1 shadow-[0_20px_60px_-15px_rgba(236,72,153,0.4)] active:scale-[0.98] disabled:opacity-50 group/download mt-6"
+                          className="w-full h-16 bg-gradient-to-br from-[#ff3366] via-[#ff5e3a] to-[#ff9500] text-white hover:brightness-110 rounded-[24px] transition-all flex flex-col items-center justify-center shadow-[0_20px_40px_-10px_rgba(255,51,102,0.4)] active:scale-[0.98] disabled:opacity-50 group/download mt-4 border border-white/30 relative overflow-hidden"
                         >
-                           <div className="flex items-center gap-3">
-                             <span>{generating ? "Crafting your Snap..." : "Generate & Download"}</span>
+                           <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover/download:opacity-100 transition-opacity" />
+                           <div className="flex items-center gap-2.5 relative z-10 px-4 w-full justify-center">
+                             <span className="text-base xs:text-lg font-black tracking-tight truncate">
+                               {generating ? "Crafting..." : "Generate & Download"}
+                             </span>
                              {!generating && (
-                               <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center group-hover/download:bg-white group-hover/download:text-pink-500 transition-all border border-white/10 shadow-lg">
-                                 <Download className="w-5 h-5 group-hover/download:translate-y-0.5 transition-transform" />
+                               <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center group-hover/download:bg-white group-hover/download:text-pink-500 transition-all border border-white/30 shadow-lg flex-shrink-0">
+                                 <Download className="w-4 h-4 group-hover/download:translate-y-0.5 transition-transform" />
                                </div>
                              )}
                            </div>
                            {!generating && (
-                             <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">High-Res Studio Export</span>
+                             <span className="text-[9px] font-black uppercase tracking-[0.25em] opacity-60 mt-0.5 relative z-10">Studio Export</span>
                            )}
                         </Button>
-                        <p className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-white/20 mb-12">
+                        <p className="mt-3 text-[9px] font-black uppercase tracking-[0.2em] text-white/20 mb-8">
                           {usageCount >= 1 ? "Limit Reached • Upgrade to Unlock" : "1 Free Shot remaining"}
                         </p>
+
+
 
                         {/* Studio Customization (Moved here for better mobile UX) */}
                         <div 
@@ -1077,13 +1087,14 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                   amount={paystackAmount}
                   onSuccess={onSuccess}
                   onClose={onClose}
-                  className="w-full h-16 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-2xl transition-all active:scale-[0.98] group/btn"
+                  className="w-full h-20 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] transition-all active:scale-[0.98] group/btn border border-white/10"
                  >
                   <span className="flex items-center justify-center gap-2">
                     {user ? (isPro ? 'Already Pro' : 'Upgrade to Pro') : 'Unlock Studio Pro'}
                     <ChevronRight className="w-5 h-5 group-hover/btn:translate-x-1 transition-transform" />
                   </span>
                  </PaystackButton>
+
                  
                  {/* Trust Badges */}
                  <div className="flex flex-col items-center gap-3 pt-2">
