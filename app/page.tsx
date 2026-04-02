@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 
-const LyricSnapClient = dynamic(() => import('./LyricSnapClient'), { 
+const LyricSnapClient = dynamic(() => import('@/components/LyricSnapClient'), { 
   ssr: false,
   loading: () => (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col items-center justify-center font-sans font-sans">

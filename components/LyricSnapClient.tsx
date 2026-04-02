@@ -19,7 +19,7 @@ const PaystackButton = dynamic(() => import('@/components/PaystackButton'), { ss
 
 const ADMIN_EMAILS = ['godwinokro2020@gmail.com'];
 
-export default function Home({ initialSong }: { initialSong?: Song | null }) {
+export default function LyricSnapClient({ initialSong }: { initialSong?: Song | null }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Song[]>([]);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);

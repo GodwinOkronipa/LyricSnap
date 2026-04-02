@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { searchSongs, Song } from '@/lib/itunes';
 import { notFound } from 'next/navigation';
-import LyricSnapClient from '@/app/LyricSnapClient';
+import LyricSnapClient from '@/components/LyricSnapClient';
 
 interface Props {
   params: Promise<{
