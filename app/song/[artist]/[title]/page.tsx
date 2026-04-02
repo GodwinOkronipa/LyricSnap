@@ -3,6 +3,7 @@ import { searchSongs, Song } from '@/lib/itunes';
 import dynamic from 'next/dynamic';
 import { notFound } from 'next/navigation';
 
+// Import the client component dynamically to enable hydration in the studio
 const LyricSnapClient = dynamic(() => import('@/app/LyricSnapClient'), { 
   ssr: false,
   loading: () => (
@@ -28,7 +29,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const decodeArtist = decodeURIComponent(artist).replace(/-/g, ' ');
   const decodeTitle = decodeURIComponent(title).replace(/-/g, ' ');
   
-  // Try to fetch song details for better SEO
   try {
     const results = await searchSongs(`${decodeTitle} ${decodeArtist}`);
     const song = results[0] || null;
@@ -68,17 +68,13 @@ export default async function SongPage({ params }: Props) {
   const decodeArtist = decodeURIComponent(artist).replace(/-/g, ' ');
   const decodeTitle = decodeURIComponent(title).replace(/-/g, ' ');
   
-  // Pre-fetch song for the client
   try {
     const results = await searchSongs(`${decodeTitle} ${decodeArtist}`);
     const song = results[0] || null;
 
-    // We still render the client even if search fails, 
-    // it will just show an empty search state or the decoded info.
     return <LyricSnapClient initialSong={song} />;
   } catch (e) {
     console.error('Loader Error:', e);
-    // If even basic search fails, we show 404
     notFound();
   }
 }
