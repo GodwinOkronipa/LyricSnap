@@ -5,6 +5,7 @@ export interface Song {
   album: string;
   artwork: string;
   previewUrl: string;
+  source?: 'itunes' | 'genius';
 }
 
 export async function searchSongs(query: string): Promise<Song[]> {
@@ -19,5 +20,6 @@ export async function searchSongs(query: string): Promise<Song[]> {
     album: item.collectionName,
     artwork: item.artworkUrl100.replace('100x100bb.jpg', '1024x1024bb.jpg'), // High-res
     previewUrl: item.previewUrl,
+    source: 'itunes',
   }));
 }

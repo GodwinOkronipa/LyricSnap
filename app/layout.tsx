@@ -23,11 +23,11 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "LyricSnap | Apple Music Screenshot Generator",
+    default: "LyricSnap | The Better Alternative to Spotify's Lyric Screenshots",
     template: "%s | LyricSnap",
   },
-  description: "Create stunning, shareable music screenshots for Instagram and TikTok in seconds. Inspired by Apple Music's premium aesthetic. Fast, high-res, and free.",
-  keywords: ["apple music screenshot generator", "fake music player generator", "song cover post generator", "music UI screenshot", "now playing card maker"],
+  description: "Stop using Spotify's basic sharing UI. Create stunning, premium music screenshots for Instagram and TikTok. The high-res alternative to Spotify and Apple Music's default lyric sharing.",
+  keywords: ["spotify screenshot alternative", "better spotify lyrics share", "apple music screenshot generator", "fake music player generator", "song cover post generator", "music UI screenshot"],
   authors: [{ name: "LyricSnap Team" }],
   creator: "LyricSnap",
   publisher: "LyricSnap",

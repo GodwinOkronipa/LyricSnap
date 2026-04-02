@@ -18,10 +18,7 @@ function RenderContent() {
   const lyrics = lyricsParam ? JSON.parse(decodeURIComponent(lyricsParam)) : [];
 
   return (
-    <div className="flex justify-center items-center h-screen bg-black overflow-hidden">
-      <head>
-        <meta name="robots" content="noindex, nofollow" />
-      </head>
+    <div className="flex justify-center items-center h-screen bg-black overflow-hidden relative">
       <MusicPlayer 
         title={title}
         artist={artist}

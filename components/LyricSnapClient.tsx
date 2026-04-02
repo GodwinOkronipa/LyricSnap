@@ -40,6 +40,15 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [isPro, setIsPro] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [pendingProActivation, setPendingProActivation] = useState(false);
+  const [searchMode, setSearchMode] = useState<'tracks' | 'lyrics'>('tracks');
+  
+  // Load pending activation on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const pending = localStorage.getItem('pending_pro_activation');
+      if (pending === 'true') setPendingProActivation(true);
+    }
+  }, []);
   
   // Studio Customization State
   const [blurAmount, setBlurAmount] = useState(80);
@@ -193,6 +202,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     console.log('Payment Success:', reference);
     if (!user) {
       setPendingProActivation(true);
+      localStorage.setItem('pending_pro_activation', 'true');
       setShowAuthModal(true);
       setShowUpgradeModal(false);
     } else {
@@ -210,6 +220,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     if (!error) {
       setIsPro(true);
       setPendingProActivation(false);
+      localStorage.removeItem('pending_pro_activation');
     }
   };
 
@@ -241,7 +252,9 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     setSelectedLines([]);
     
     try {
-      const data = await searchSongs(query);
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=${searchMode}`);
+      if (!response.ok) throw new Error('Search failed');
+      const data = await response.json();
       setResults(data);
       analytics.trackSearch(query, data.length);
     } catch (err) {
@@ -277,7 +290,9 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
 
       setIsSearchingSuggestions(true);
       try {
-        const data = await searchSongs(debouncedQuery);
+        const response = await fetch(`/api/search?q=${encodeURIComponent(debouncedQuery)}&type=${searchMode}`);
+        if (!response.ok) throw new Error('Suggestions failed');
+        const data = await response.json();
         if (active) {
           setSuggestions(data.slice(0, 6)); // Top 6 suggestions
           setSelectedIndex(-1); // Reset selection
@@ -294,7 +309,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     return () => {
       active = false;
     };
-  }, [debouncedQuery, selectedSong]);
+  }, [debouncedQuery, selectedSong, searchMode]);
 
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -408,27 +423,45 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       }
       
       const apiUri = `/api/generate?${params.toString()}`;
+      console.log('[DEBUG] Calling API:', apiUri);
 
       if (isIOS && iosTab) {
         // For iOS, redirect the already-open tab directly to the API URL
         // The server will respond with Content-Disposition: attachment, triggering the native popup
         iosTab.location.href = apiUri;
       } else {
-        const response = await fetch(apiUri);
-        if (response.ok) {
-          const blob = await response.blob();
+        // 🛡️ Added timeout for slow local environments
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+        try {
+          const response = await fetch(apiUri, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          console.log('[DEBUG] API Response Status:', response.status);
           
-          // Standard Download for Desktop/Android
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${selectedSong.title.replace(/\s+/g, '_')}_LyricSnap.png`;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-        } else {
-          throw new Error('Failed to generate image');
+          if (response.ok) {
+            const blob = await response.blob();
+            console.log('[DEBUG] Blob received, size:', blob.size);
+            
+            // Standard Download for Desktop/Android
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${selectedSong.title.replace(/\s+/g, '_')}_LyricSnap.png`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('[DEBUG] API Error Details:', errorData);
+            throw new Error(errorData.error || 'Failed to generate image');
+          }
+        } catch (fetchErr: any) {
+          if (fetchErr.name === 'AbortError') {
+             throw new Error('Generation timed out. The system is running slow, please try again.');
+          }
+          throw fetchErr;
         }
       }
 
@@ -466,13 +499,23 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       
       setUsageCount(newCount);
     } catch (err: any) {
-      console.error(err);
+      console.error('[DEBUG] handleDownload Caught Error:', err);
       if (isIOS && iosTab) iosTab.close();
-      alert('Generation failed. Please try again.');
+      
+      const isLimitError = err.message?.toLowerCase().includes('limit reached');
+      
+      if (isLimitError) {
+        setShowUpgradeModal(true);
+      } else {
+        alert(`Generation failed: ${err.message || 'Please try again.'}`);
+      }
+      
       analytics.trackError('generation_failed', err.message);
     } finally {
       setGenerating(false);
     }
+
+
   };
 
 
@@ -484,76 +527,95 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       {/* Upgrade Modal */}
       <AnimatePresence>
         {showUpgradeModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-2xl bg-black/60">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-3xl bg-black/80">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="max-w-md w-full bg-white text-black p-10 rounded-[56px] shadow-[0_50px_100px_rgba(0,0,0,0.5)] relative overflow-hidden"
+              className="max-w-md w-full bg-[#0a0a0a] text-white p-10 rounded-[56px] shadow-[0_50px_100px_rgba(0,0,0,0.8)] relative overflow-hidden ring-1 ring-white/10"
             >
-               <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/10 rounded-full blur-3xl -mr-16 -mt-16" />
+               <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl -mr-16 -mt-16" />
+               <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -ml-16 -mb-16" />
+
                <button 
                 onClick={() => setShowUpgradeModal(false)}
-                className="absolute top-8 right-8 p-2 hover:bg-black/5 rounded-full transition-colors"
+                className="absolute top-8 right-8 p-3 bg-white/5 hover:bg-white/10 rounded-full transition-all text-white/40 hover:text-white"
                 aria-label="Close Upgrade Modal"
                >
                 <X className="w-5 h-5" />
                </button>
-               <div className="space-y-6 text-center">
-                 <div className="w-20 h-20 bg-pink-500 rounded-[28px] flex items-center justify-center mx-auto shadow-xl shadow-pink-500/30">
-                    <Sparkles className="w-10 h-10 text-white" />
-                 </div>
-                 <h3 className="text-3xl font-black tracking-tighter">Limit Reached.</h3>
-                 <p className="text-black/60 font-medium leading-relaxed">
-                   You've used your 1 free snapshot. Upgrade to **Studio Pro** for unlimited high-res downloads and custom templates.
-                 </p>
-                 <div className="bg-black/5 rounded-[32px] p-6 space-y-2">
-                    <p className="text-xs font-black uppercase tracking-widest text-black/40">Powered by</p>
-                    <p className="text-xl font-black tracking-tight text-indigo-600">Flywheel Technologies</p>
-                 </div>
-                  <PaystackButton 
-                  email={user?.email || ""}
-                  amount={paystackAmount}
-                  onSuccess={onSuccess}
-                  onClose={onClose}
-                  className="w-full h-16 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-2xl transition-all active:scale-[0.98]"
-                 >
-                    {user ? 'Upgrade to Pro' : 'Pay & Create Account'}
-                 </PaystackButton>
-                 
-                 {/* Trust Badges */}
-                 <div className="flex flex-col items-center gap-3 pt-2">
-                   <div className="flex items-center gap-4 opacity-30 grayscale hover:opacity-50 transition-opacity">
-                     <svg className="h-6 w-auto" viewBox="0 0 40 24" fill="currentColor">
-                       <path d="M34.78 12c0-4.63-3.08-7.73-7.5-7.73-4.5 0-7.66 3.25-7.7 7.73 0 4.6 3.1 7.73 7.6 7.73 4.4 0 7.6-3.1 7.6-7.73zm-7.6 5.86c-3.1 0-5.12-2.15-5.12-5.86s2-5.9 5.12-5.9 5.1 2.2 5.1 5.9-2 5.86-5.1 5.86zm-11.45-3.32v-5.07c0-2.43-1.42-3.8-3.46-3.8-2.1 0-3.33 1.34-3.33 3.32v5.55H6.42v5.6h2.52v-5.9c0-1.2.6-1.84 1.48-1.84.86 0 1.34.58 1.34 1.74v6h2.53v-5.6zm13.1-9.94c-1.4 0-2.3.8-2.3 2.05s.9 2 2.3 2 2.34-.76 2.34-2-.94-2.05-2.34-2.05zm0 1.2c.6 0 1 .32 1 .86 0 .5-.4.85-1 .85s-1-.34-1-.85c0-.54.4-.86 1-.86zm-17 12.1v-5.07c0-2.43-1.42-3.8-3.46-3.8-2.1 0-3.33 1.34-3.33 3.32v5.55H2.43v5.6h2.52v-5.9c0-1.2.6-1.84 1.48-1.84.86 0 1.34.58 1.34 1.74v6h2.52v-5.6zm23.8-12.1c-1.4 0-2.3.8-2.3 2.05s.9 2 2.3 2 2.34-.76 2.34-2-.94-2.05-2.34-2.05zm0 1.2c.6 0 1 .32 1 .86 0 .5-.4.85-1 .85s-1-.34-1-.85c0-.54.4-.86 1-.86z"/>
-                       {/* Simplified Apple Pay Logo representation */}
-                       <rect x="0" y="0" width="40" height="24" rx="4" fill="none" stroke="currentColor" strokeWidth="1"/>
-                       <text x="20" y="16" fontSize="8" textAnchor="middle" fontWeight="bold" fill="currentColor">Apple Pay</text>
-                     </svg>
-                     <svg className="h-5 w-auto" viewBox="0 0 24 16" fill="currentColor">
-                        <path d="M19.16 3.12l-2.06 9.76h-2.1l2.06-9.76h2.1zm-8.4 0l-2.06 9.76h-2.1L8.66 3.12h2.1zm-8.4 0l-2.06 9.76h-2.1L2.36 3.12h2.1z" opacity="0"/>
-                        <path d="M11.9 0C5.3 0 0 5.3 0 11.9s5.3 11.9 11.9 11.9 11.9-5.3 11.9-11.9S18.5 0 11.9 0zm0 21.8c-5.5 0-9.9-4.4-9.9-9.9S6.4 2 11.9 2s9.9 4.4 9.9 9.9-4.4 9.9-9.9 9.9z" opacity="0"/>
-                        <circle cx="10" cy="8" r="7" fill="currentColor" opacity="0.6"/>
-                        <circle cx="14" cy="8" r="7" fill="currentColor" opacity="0.6"/>
-                        <text x="12" y="15" fontSize="4" textAnchor="middle" fontWeight="black" fill="currentColor">MASTERCARD</text>
-                     </svg>
-                     <svg className="h-4 w-auto" viewBox="0 0 24 8" fill="currentColor">
-                        <path d="M0 0h2.5l1.5 5 1.5-5h2.5L5 8H3L0 0zm10 0h2v8h-2V0zm5 0h8v2h-8V0zm0 3h8v2h-8V3zm0 3h8v2h-8V6z" opacity="0"/>
-                        <text x="12" y="7" fontSize="8" textAnchor="middle" fontWeight="black" fontStyle="italic" fill="currentColor">VISA</text>
-                     </svg>
+
+               <div className="space-y-8 text-center relative z-10">
+                 <div className="relative inline-block">
+                   <div className="w-24 h-24 bg-gradient-to-tr from-pink-600 via-pink-500 to-orange-400 rounded-[32px] flex items-center justify-center mx-auto shadow-2xl shadow-pink-500/40 transform -rotate-3 overflow-hidden">
+                      <Sparkles className="w-12 h-12 text-white drop-shadow-[0_4px_12px_rgba(255,255,255,0.4)]" />
                    </div>
-                   <div className="flex items-center gap-1.5 opacity-20 text-[8px] font-black uppercase tracking-widest">
-                     <Shield className="w-2.5 h-2.5" />
-                     Secure 256-bit SSL Payment
-                   </div>
+                   <motion.div 
+                    animate={{ scale: [1, 1.1, 1] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="absolute -top-3 -right-3 w-8 h-8 bg-black rounded-full flex items-center justify-center shadow-lg ring-1 ring-white/10"
+                   >
+                     🚀
+                   </motion.div>
+                 </div>
+
+                 <div className="space-y-3">
+                   <h3 className="text-4xl font-heading tracking-tighter leading-tight">Elevate Your <br /> <span className="text-pink-500 italic">Musical Brand.</span></h3>
+                   <p className="text-white/40 font-medium leading-relaxed max-w-[280px] mx-auto text-sm">
+                     {user ? "Upgrade now to unlock all professional studio features forever." : "Guests: You'll create your account after checkout to secure your Studio Pro status."}
+                   </p>
+                 </div>
+
+                 <div className="grid grid-cols-1 gap-4 text-left py-4">
+                   {[
+                     { icon: Zap, text: "Unlimited High-Res Generations" },
+                     { icon: Music, text: "All Premium Design Templates" },
+                     { icon: Shield, text: "Cloud Sync & History Access" }
+                   ].map((item, i) => (
+                     <div key={i} className="flex items-center gap-3 bg-white/5 p-3.5 rounded-2xl ring-1 ring-white/5 group hover:bg-white/[0.08] transition-colors">
+                       <div className="p-2 bg-pink-500/10 text-pink-500 rounded-lg group-hover:scale-110 transition-transform">
+                          <item.icon className="w-4 h-4" />
+                       </div>
+                       <span className="text-xs font-bold tracking-tight">{item.text}</span>
+                     </div>
+                   ))}
+                 </div>
+
+                 <div className="space-y-4">
+                    <PaystackButton 
+                      email={user?.email || ""}
+                      amount={paystackAmount}
+                      onSuccess={onSuccess}
+                      onClose={onClose}
+                      className="w-full h-16 bg-white text-black hover:bg-pink-50 rounded-full font-black text-xl shadow-[0_15px_40px_-5px_rgba(255,255,255,0.1)] transition-all active:scale-[0.98] group/pay"
+                    >
+                      <span className="flex items-center justify-center gap-3">
+                        Upgrade for $0.49
+                        <ChevronRight className="w-5 h-5 group-hover/pay:translate-x-1 transition-transform" />
+                      </span>
+                    </PaystackButton>
+                    
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/20">One-time payment • Lifetime Access</p>
                  </div>
                  
-                 <p className="text-[10px] font-black uppercase tracking-widest text-black/30">One-time payment • No subscription needed</p>
+                 {/* Better Trust Badges */}
+                 <div className="flex flex-col items-center gap-4 pt-6 mt-8 border-t border-white/5">
+                   <div className="flex items-center gap-6 opacity-20 grayscale hover:opacity-100 transition-all duration-700">
+                     <div className="flex items-center border border-white px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter">Apple Pay</div>
+                     <div className="flex items-center border border-white px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter">Visa</div>
+                     <div className="flex items-center border border-white px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter">Mastercard</div>
+                   </div>
+                   <div className="flex items-center gap-2 text-indigo-400/40 text-[8px] font-black uppercase tracking-widest leading-none">
+                     <Shield className="w-3 h-3" />
+                     Bank-Level SSL Security
+                   </div>
+                 </div>
                </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
 
       {/* Auth Modal */}
       <AuthModal 
@@ -615,10 +677,132 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
               Your Music. <br /> <span className="italic">Perfectly</span> Captured.
             </h1>
             <p className="text-xl md:text-2xl text-white/50 max-w-2xl mx-auto mb-16 font-medium leading-relaxed">
-              Create stunning, shareable music screenshots for Instagram and TikTok in seconds. Inspired by Apple Music's premium aesthetic.
+              Stop using Spotify's basic screenshot UI. Create stunning, premium music cards for Instagram and TikTok in seconds.
             </p>
 
+            {/* MY SNAPS (HISTORY) - MOVED TO TOP FOR LOGGED IN USERS */}
+            {user && (
+              <section id="history" className="mt-16 mb-24 py-12 bg-white/[0.02] border border-white/10 rounded-[48px] backdrop-blur-3xl shadow-2xl relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 pointer-events-none" />
+                <div className="max-w-7xl mx-auto px-8 relative z-10">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-indigo-500/20 rounded-2xl">
+                        <History className="w-6 h-6 text-indigo-400" />
+                      </div>
+                      <div className="space-y-1 text-left">
+                        <h2 className="text-3xl font-heading tracking-tight">Your Gallery</h2>
+                        <p className="text-white/30 text-[10px] font-black uppercase tracking-[0.2em]">
+                          Welcome back, {user.email?.split('@')[0]}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {isPro && (
+                      <div className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl flex items-center gap-2 shadow-xl shadow-indigo-500/20 h-fit">
+                        <Sparkles className="w-4 h-4 text-white" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">Studio Pro</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
+                    {/* Coming Soon Teaser */}
+                    <motion.div 
+                      whileHover={{ scale: 1.02 }}
+                      className="group relative aspect-[3/4] rounded-3xl overflow-hidden border-2 border-dashed border-white/10 bg-white/[0.02] p-8 flex flex-col items-center justify-center text-center gap-6 backdrop-blur-md order-last md:order-first"
+                    >
+                      <div className="w-16 h-16 bg-gradient-to-tr from-pink-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-pink-500/20 group-hover:rotate-12 transition-transform">
+                        <Music className="w-8 h-8 text-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-black bg-pink-500 text-white px-3 py-1 rounded-full uppercase tracking-widest">Studio Exclusive</span>
+                        <h3 className="text-lg font-bold tracking-tight mt-2 leading-tight">Lyrics Video <br /> Generator</h3>
+                        <p className="text-white/30 text-[10px] font-medium leading-relaxed">Coming soon to Pro.</p>
+                      </div>
+                      
+                      <button 
+                        onClick={() => setWaitlistJoined(true)}
+                        disabled={waitlistJoined}
+                        className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${waitlistJoined ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white text-black hover:bg-pink-500 hover:text-white shadow-xl'}`}
+                      >
+                        {waitlistJoined ? '✓ Joined' : 'Join'}
+                      </button>
+                    </motion.div>
+
+                    {history.length === 0 && (
+                      <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="col-span-1 md:col-span-3 lg:col-span-4 min-h-[300px] flex flex-col items-center justify-center border border-white/5 bg-white/[0.01] rounded-[48px] text-center p-12 space-y-4"
+                      >
+                        <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center opacity-30">
+                          <History className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xl font-bold opacity-30 tracking-tight">Gallery Empty</p>
+                          <p className="text-white/20 text-[10px] font-black uppercase tracking-widest">Capture your first lyric snap!</p>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {history.map((item) => (
+                      <motion.div 
+                        key={item.id}
+                        whileHover={{ scale: 1.05 }}
+                        className="group relative aspect-[3/4] rounded-3xl overflow-hidden border border-white/10 bg-black/40 cursor-pointer"
+                      >
+                        <img 
+                          src={item.artwork} 
+                          alt={item.title}
+                          className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end">
+                          <p className="font-bold truncate text-[12px]">{item.title}</p>
+                          <p className="text-white/40 text-[9px] truncate uppercase tracking-widest mb-3">{item.artist}</p>
+                          
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => {
+                                setSelectedSong({
+                                  id: Number(item.id.replace(/\D/g, '').slice(0, 8)) || Date.now(),
+                                  title: item.title,
+                                  artist: item.artist,
+                                  artwork: item.artwork,
+                                  album: "Studio Pro Design",
+                                  previewUrl: ""
+                                });
+                                setSelectedLines(item.lyrics || []);
+                                previewRef.current?.scrollIntoView({ behavior: 'smooth' });
+                              }}
+                              className="flex-1 h-8 bg-white text-black rounded-lg text-[9px] font-black uppercase hover:bg-pink-500 hover:text-white transition-colors"
+                            >
+                                Edit
+                            </button>
+                            <button 
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (confirm('Delete this snap?')) {
+                                  await supabase.from('generations').delete().eq('id', item.id);
+                                  fetchHistory(user.id);
+                                }
+                              }}
+                              className="w-8 h-8 bg-black/40 backdrop-blur-md rounded-lg flex items-center justify-center hover:bg-red-500/80 transition-colors"
+                              aria-label="Delete snap"
+                            >
+                                <X className="w-3 h-3 text-white" />
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* Main Action Tool */}
+
             <div id="tool" className="max-w-5xl mx-auto bg-white/[0.05] border border-white/15 rounded-[48px] p-4 md:p-12 backdrop-blur-3xl shadow-2xl relative overflow-hidden group/tool">
               <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 to-blue-500/5 opacity-0 group-hover/tool:opacity-100 transition-opacity pointer-events-none" />
               
@@ -630,10 +814,25 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                     <p className="text-white/40">Search for any track to get started.</p>
                   </div>
 
+                  <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10 rounded-2xl w-fit backdrop-blur-md">
+                    <button
+                      onClick={() => setSearchMode('tracks')}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${searchMode === 'tracks' ? 'bg-white text-black shadow-lg shadow-white/10' : 'text-white/40 hover:text-white/60'}`}
+                    >
+                      Search Tracks
+                    </button>
+                    <button
+                      onClick={() => setSearchMode('lyrics')}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${searchMode === 'lyrics' ? 'bg-pink-600 text-white shadow-lg shadow-pink-500/20' : 'text-white/40 hover:text-white/60'}`}
+                    >
+                      Search Lyrics
+                    </button>
+                  </div>
+
                   <form onSubmit={handleSearch} className="relative group/search">
                     <input
                       type="text"
-                      placeholder="Enter song name or paste link..."
+                      placeholder={searchMode === 'tracks' ? "Enter song name or paste link..." : "Enter lyrics (e.g. Just a small town girl...)"}
                       value={query}
                       onFocus={() => setShowSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
@@ -675,7 +874,12 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                               >
                                 <img src={song.artwork} alt="" className="w-12 h-12 rounded-xl object-cover shadow-2xl group-hover/sugg:scale-105 transition-transform" />
                                 <div className="flex-1 overflow-hidden">
-                                  <p className="font-bold truncate text-sm group-hover/sugg:text-pink-500 transition-colors">{song.title}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold truncate text-sm group-hover/sugg:text-pink-500 transition-colors">{song.title}</p>
+                                    {song.source === 'genius' && (
+                                      <span className="text-[7px] font-black bg-pink-500/20 text-pink-500 px-1.5 py-0.5 rounded uppercase tracking-tighter">Genius</span>
+                                    )}
+                                  </div>
                                   <p className="text-white/30 text-[10px] truncate uppercase tracking-widest font-medium">{song.artist}</p>
                                 </div>
                                 <ChevronRight className="w-4 h-4 text-white/10 group-hover/sugg:text-white/40 group-hover/sugg:translate-x-1 transition-all" />
@@ -716,7 +920,12 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                               >
                                 <img src={song.artwork} alt={`${song.title} by ${song.artist}`} className="w-14 h-14 rounded-lg object-cover shadow-lg" />
                                 <div className="flex-1 overflow-hidden text-left">
-                                  <p className="font-bold truncate text-lg">{song.title}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold truncate text-lg">{song.title}</p>
+                                    {song.source === 'genius' && (
+                                      <span className="text-[8px] font-black bg-pink-500/20 text-pink-500 px-2 py-0.5 rounded-lg uppercase tracking-widest">Lyric Match</span>
+                                    )}
+                                  </div>
                                   <p className="text-white/40 text-xs truncate uppercase tracking-wider">{song.artist}</p>
                                 </div>
                               </div>
@@ -763,7 +972,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="flex flex-col items-center w-full"
                       >
-                        <div className="relative group/player mb-6 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[400px] flex justify-center scale-[0.8] xs:scale-[0.9] sm:scale-100 origin-center mx-auto">
+                        <div className="relative group/player mb-6 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[400px] flex justify-center scale-90 xs:scale-100 sm:scale-100 origin-center mx-auto">
 
                           <MusicPlayer 
                             title={selectedSong.title}
@@ -925,7 +1134,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         </div>
                       </motion.div>
                     ) : (
-                      <div className="w-[400px] h-[600px] rounded-[48px] border-2 border-dashed border-white/15 bg-white/[0.02] flex flex-col items-center justify-center text-center p-12 space-y-6 backdrop-blur-sm">
+                      <div className="w-full max-w-[400px] aspect-[400/600] rounded-[48px] border-2 border-dashed border-white/15 bg-white/[0.02] flex flex-col items-center justify-center text-center p-6 md:p-12 space-y-6 backdrop-blur-sm mx-auto scale-90 xs:scale-100 sm:scale-100 origin-center">
                         <div className="w-20 h-20 bg-white/5 rounded-[30px] flex items-center justify-center">
                           <Sparkles className="w-10 h-10 opacity-20" />
                         </div>
@@ -939,26 +1148,29 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
           </motion.div>
         </section>
 
-        {/* HOW IT WORKS */}
-        <section id="how-it-works" className="py-24 bg-white/[0.02] border-y border-white/10 backdrop-blur-3xl relative overflow-hidden">
-          <div className="max-w-7xl mx-auto px-4 md:px-8 relative z-10">
-            <h2 className="text-5xl md:text-6xl font-heading text-center mb-16 md:mb-24 tracking-tighter">How it Works</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8">
-              {[
-                { step: "01", title: "Search", desc: "Paste a song link or search from 100M+ tracks." },
-                { step: "02", title: "Customize", desc: "Select the lyrics that hit different." },
-                { step: "03", title: "Render", desc: "Our engine crafts a pixel-perfect image." },
-                { step: "04", title: "Share", desc: "Download & flex on IG or TikTok." }
-              ].map((item, i) => (
-                <div key={i} className="relative p-6 bg-white/[0.08] border border-white/10 rounded-[40px] md:rounded-[48px] group transition-all hover:bg-white/15 h-full backdrop-blur-md shadow-xl flex flex-col justify-center text-center md:text-left md:p-12">
-                  <span className="text-4xl md:text-7xl font-heading opacity-30 mb-2 md:mb-8 block transition-opacity group-hover:opacity-50">{item.step}</span>
-                  <h3 className="text-lg md:text-2xl font-bold mb-2 md:mb-4 tracking-tight">{item.title}</h3>
-                  <p className="text-white/40 leading-relaxed text-[12px] md:text-sm">{item.desc}</p>
-                </div>
-              ))}
+        {/* HOW IT WORKS (Only for Guests) */}
+        {!user && (
+          <section id="how-it-works" className="py-24 bg-white/[0.02] border-y border-white/10 backdrop-blur-3xl relative overflow-hidden">
+            <div className="max-w-7xl mx-auto px-4 md:px-8 relative z-10">
+              <h2 className="text-5xl md:text-6xl font-heading text-center mb-16 md:mb-24 tracking-tighter">How it Works</h2>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8">
+                {[
+                  { step: "01", title: "Search", desc: "Paste a song link or search from 100M+ tracks." },
+                  { step: "02", title: "Customize", desc: "Select the lyrics that hit different." },
+                  { step: "03", title: "Render", desc: "Our engine crafts a pixel-perfect image." },
+                  { step: "04", title: "Share", desc: "Download & flex on IG or TikTok." }
+                ].map((item, i) => (
+                  <div key={i} className="relative p-6 bg-white/[0.08] border border-white/10 rounded-[40px] md:rounded-[48px] group transition-all hover:bg-white/15 h-full backdrop-blur-md shadow-xl flex flex-col justify-center text-center md:text-left md:p-12">
+                    <span className="text-4xl md:text-7xl font-heading opacity-30 mb-2 md:mb-8 block transition-opacity group-hover:opacity-50">{item.step}</span>
+                    <h3 className="text-lg md:text-2xl font-bold mb-2 md:mb-4 tracking-tight">{item.title}</h3>
+                    <p className="text-white/40 leading-relaxed text-[12px] md:text-sm">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
+
 
         {/* FEATURES */}
         <section id="features" className="py-32 relative">
@@ -1123,95 +1335,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
             </div>
           </div>
         </section>
-        {/* MY SNAPS (HISTORY) */}
-        {user && history.length > 0 && (
-          <section id="history" className="py-24 bg-white/[0.02] border-t border-white/10 backdrop-blur-3xl">
-            <div className="max-w-7xl mx-auto px-8">
-              <div className="flex items-center gap-4 mb-12">
-                <div className="p-3 bg-indigo-500/20 rounded-2xl">
-                  <History className="w-6 h-6 text-indigo-400" />
-                </div>
-                <h2 className="text-4xl font-heading tracking-tight">My Snaps</h2>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                {/* Coming Soon Teaser */}
-                <motion.div 
-                  whileHover={{ scale: 1.02 }}
-                  className="group relative aspect-[3/4] rounded-3xl overflow-hidden border-2 border-dashed border-white/10 bg-white/[0.02] p-8 flex flex-col items-center justify-center text-center gap-6 backdrop-blur-md"
-                >
-                  <div className="w-16 h-16 bg-gradient-to-tr from-pink-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-pink-500/20 group-hover:rotate-12 transition-transform">
-                    <Music className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="space-y-2">
-                    <span className="text-[10px] font-black bg-pink-500 text-white px-3 py-1 rounded-full uppercase tracking-widest">Studio Exclusive</span>
-                    <h3 className="text-xl font-bold tracking-tight mt-2">Lyrics Video <br /> Generator</h3>
-                    <p className="text-white/30 text-[10px] font-medium leading-relaxed">Motion-synced lyric videos for TikTok & Reels.</p>
-                  </div>
-                  
-                  <button 
-                    onClick={() => setWaitlistJoined(true)}
-                    disabled={waitlistJoined}
-                    className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${waitlistJoined ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white text-black hover:bg-pink-500 hover:text-white shadow-xl'}`}
-                  >
-                    {waitlistJoined ? '✓ Joined Waitlist' : 'Join Waitlist'}
-                  </button>
-                </motion.div>
 
-                {history.map((item) => (
-                  <motion.div 
-                    key={item.id}
-                    whileHover={{ scale: 1.05 }}
-                    className="group relative aspect-[3/4] rounded-3xl overflow-hidden border border-white/10 bg-black/40 cursor-pointer"
-                  >
-                    <img 
-                      src={item.artwork} 
-                      alt={item.title}
-                      className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end">
-                      <p className="font-bold truncate text-sm">{item.title}</p>
-                      <p className="text-white/40 text-[10px] truncate uppercase tracking-widest mb-3">{item.artist}</p>
-                      
-                      {/* Action Overlays */}
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <button 
-                          onClick={() => {
-                            setSelectedSong({
-                              id: Number(item.id.replace(/\D/g, '').slice(0, 8)) || Date.now(), // Fallback ID
-                              title: item.title,
-                              artist: item.artist,
-                              artwork: item.artwork,
-                              album: "Studio Pro Design",
-                              previewUrl: "" // No preview for history items
-                            });
-                            setSelectedLines(item.lyrics || []);
-                            previewRef.current?.scrollIntoView({ behavior: 'smooth' });
-                          }}
-                          className="flex-1 h-8 bg-white text-black rounded-lg text-[10px] font-black uppercase hover:bg-pink-500 hover:text-white transition-colors"
-                         >
-                            Edit
-                         </button>
-                         <button 
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (confirm('Delete this snap?')) {
-                              await supabase.from('generations').delete().eq('id', item.id);
-                              fetchHistory(user.id);
-                            }
-                          }}
-                          className="w-8 h-8 bg-black/40 backdrop-blur-md rounded-lg flex items-center justify-center hover:bg-red-500/80 transition-colors"
-                          aria-label="Delete snap"
-                         >
-                            <X className="w-3 h-3 text-white" />
-                         </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
         {/* SEO SECTION: THE ULTIMATE GUIDE */}
         <section id="guide" className="py-32 border-t border-white/5 bg-black/40">
           <div className="max-w-5xl mx-auto px-8">
@@ -1227,17 +1351,17 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                   <div className="flex gap-4">
                     <div className="w-1 h-12 bg-pink-500 rounded-full" />
                     <p className="text-sm font-medium text-white/60 italic">
-                      "We don't just generate images; we curate your digital musical identity."
+                      "Because music is art, and your screenshots should be too. Stop settling for Spotify's basic, pixelated lyric sharing."
                     </p>
                   </div>
                 </div>
               </div>
               <div className="space-y-8 text-sm text-white/30 leading-relaxed">
                 <p>
-                  Whether you're looking for an **Apple Music screenshot generator** or a **TikTok music player creator**, LyricSnap provides the most accurate and aesthetically pleasing renders on the web. Our engine matches colors dynamically to your album art, ensuring every "Now Playing" card is a masterpiece.
+                  If you've ever felt that **Spotify's lyric screenshots are ugly**, you're not alone. LyricSnap was built as a premium **Spotify UI alternative**, providing high-resolution, aesthetically balanced music cards. Our tool is the most advanced **Apple Music screenshot generator** and **TikTok music player creator** currently available.
                 </p>
                 <p>
-                  By upgrading to **Studio Pro**, you unlock the ability to **save your generations** to the cloud. This means you can create your perfect lyric snap on your laptop and access it instantly on your phone for that perfect Instagram Story post. No more manual transfers—just pure, seamless creativity.
+                  Unlike the default sharing options, LyricSnap gives you full control over blur intensity, vignette levels, and templates. It's the ultimate **fake music player generator** for creators who care about their brand's visual identity on Instagram and TikTok.
                 </p>
               </div>
             </div>
@@ -1305,3 +1429,4 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     </div>
   );
 }
+

@@ -34,7 +34,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
 
   return (
     <div 
-      className={`relative w-[400px] h-[600px] overflow-hidden rounded-[40px] shadow-2xl bg-black flex flex-col items-center p-8 text-white selection:bg-pink-500/30 font-sans`}
+      className={`relative w-[400px] h-[600px] overflow-hidden rounded-[40px] shadow-2xl bg-black flex flex-col items-center p-6 md:p-12 text-white selection:bg-pink-500/30 font-sans`}
       style={{ 
         '--artwork-url': `url(${artwork})`,
         '--blur-amount': `${blurAmount}px`,

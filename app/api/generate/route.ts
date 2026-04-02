@@ -58,35 +58,62 @@ export async function GET(req: NextRequest) {
       renderUrl += `&lyrics=${encodeURIComponent(lyrics)}`;
     }
 
+    console.log('[API] Generating image for:', title);
+    console.log('[API] Rendering via:', renderUrl);
+
     let browser;
-    if (isProd) {
-      browser = await puppeteer.launch({
-        args: chromium.args,
-        defaultViewport: { width: 800, height: 800 },
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless as any,
-      });
-    } else {
-      browser = await puppeteer.launch({
-        args: [],
-        defaultViewport: { width: 800, height: 800 },
-        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        headless: true,
-      });
+    try {
+      if (isProd) {
+        browser = await puppeteer.launch({
+          args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+          defaultViewport: { width: 800, height: 800 },
+          executablePath: await chromium.executablePath(),
+          headless: chromium.headless as any,
+        });
+      } else {
+        browser = await puppeteer.launch({
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-accelerated-2d-canvas', '--disable-gpu'],
+          defaultViewport: { width: 800, height: 800 },
+          executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+          headless: true,
+        });
+      }
+    } catch (launchError: any) {
+      console.error('[API] Puppeteer Launch Error:', launchError);
+      throw new Error(`Browser launch failed: ${launchError.message}`);
     }
 
     const page = await browser.newPage();
-    await page.goto(renderUrl, { waitUntil: 'networkidle2' });
+    
+    try {
+      console.log('[API] Navigating to render URL...');
+      await page.goto(renderUrl, { 
+        waitUntil: 'networkidle0',
+        timeout: 45000 
+      });
+      
+      // Wait a bit for animations and blur filter to settle
+      console.log('[API] Waiting for hydration...');
+      await new Promise(r => setTimeout(r, 1000));
+      
+    } catch (gotoError: any) {
+      console.error('[API] Page Navigation Error:', gotoError);
+      await browser.close();
+      throw new Error(`Navigation failed: ${gotoError.message}`);
+    }
 
     // Target the specific component
+    console.log('[API] Capturing screenshot...');
     const element = await page.$('#screenshot-target');
     if (!element) {
       await browser.close();
+      console.error('[API] Screenshot target (#screenshot-target) not found on page');
       throw new Error('Screenshot target not found');
     }
 
     const buffer = await element.screenshot({ type: 'png' });
     await browser.close();
+    console.log('[API] Screenshot captured successfully');
 
     // Log the generation to Supabase
     try {
@@ -100,9 +127,10 @@ export async function GET(req: NextRequest) {
           lyrics: lyrics ? JSON.parse(decodeURIComponent(lyrics)) : []
         });
         await supabaseServer.from('profiles').update({ usage_count: newCount }).eq('id', session.user.id);
+        console.log('[API] Generation logged to database');
       }
     } catch (dbError) {
-      console.error('Failed to log generation:', dbError);
+      console.error('[API] Failed to log generation:', dbError);
     }
 
 
@@ -118,8 +146,11 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(buffer as any, { headers });
   } catch (error: any) {
-
-    console.error('Screenshot error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('[API] General Generate Error:', error);
+    return NextResponse.json({ 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, { status: 500 });
   }
+
 }
