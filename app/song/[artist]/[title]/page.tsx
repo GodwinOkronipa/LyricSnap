@@ -1,18 +1,7 @@
 import { Metadata } from 'next';
 import { searchSongs, Song } from '@/lib/itunes';
-import dynamic from 'next/dynamic';
 import { notFound } from 'next/navigation';
-
-// Import the client component dynamically to enable hydration in the studio
-const LyricSnapClient = dynamic(() => import('@/app/LyricSnapClient'), { 
-  ssr: false,
-  loading: () => (
-    <div className="min-h-screen bg-[#050505] text-white flex flex-col items-center justify-center font-sans">
-      <div className="w-12 h-12 border-2 border-white/10 border-t-pink-500 rounded-full animate-spin mb-4" />
-      <p className="text-sm font-bold uppercase tracking-[0.3em] opacity-30 text-center">Opening Studio...</p>
-    </div>
-  )
-});
+import LyricSnapClient from '@/app/LyricSnapClient';
 
 interface Props {
   params: Promise<{
