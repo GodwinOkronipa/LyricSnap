@@ -19,7 +19,7 @@ const PaystackButton = dynamic(() => import('@/components/PaystackButton'), { ss
 
 const ADMIN_EMAILS = ['godwinokro2020@gmail.com'];
 
-export default function Home() {
+export default function Home({ initialSong }: { initialSong?: Song | null }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Song[]>([]);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
@@ -43,6 +43,29 @@ export default function Home() {
   const [waitlistJoined, setWaitlistJoined] = useState(false);
 
   const previewRef = useRef<HTMLDivElement>(null);
+  const initialLoadRef = useRef(false);
+
+  // Initial song load
+  useEffect(() => {
+    if (initialSong && !initialLoadRef.current) {
+      setSelectedSong(initialSong);
+      setQuery(`${initialSong.title} ${initialSong.artist}`);
+      initialLoadRef.current = true;
+      // Optionally fetch lyrics automatically for the SEO page
+      const fetchInitialLyrics = async () => {
+        setFetchingLyrics(true);
+        try {
+          const data = await fetchLyrics(initialSong.title, initialSong.artist);
+          setLyrics(data);
+        } catch (err) {
+          console.error('Failed to fetch initial lyrics:', err);
+        } finally {
+          setFetchingLyrics(false);
+        }
+      };
+      fetchInitialLyrics();
+    }
+  }, [initialSong]);
 
   // Auth & Session management
   useEffect(() => {
@@ -358,7 +381,7 @@ export default function Home() {
                     <p className="text-xs font-black uppercase tracking-widest text-black/40">Powered by</p>
                     <p className="text-xl font-black tracking-tight text-indigo-600">Flywheel Technologies</p>
                  </div>
-                 <PaystackButton 
+                  <PaystackButton 
                   email={user?.email || ""}
                   amount={paystackAmount}
                   onSuccess={onSuccess}
@@ -367,6 +390,34 @@ export default function Home() {
                  >
                     {user ? 'Upgrade to Pro' : 'Pay & Create Account'}
                  </PaystackButton>
+                 
+                 {/* Trust Badges */}
+                 <div className="flex flex-col items-center gap-3 pt-2">
+                   <div className="flex items-center gap-4 opacity-30 grayscale hover:opacity-50 transition-opacity">
+                     <svg className="h-6 w-auto" viewBox="0 0 40 24" fill="currentColor">
+                       <path d="M34.78 12c0-4.63-3.08-7.73-7.5-7.73-4.5 0-7.66 3.25-7.7 7.73 0 4.6 3.1 7.73 7.6 7.73 4.4 0 7.6-3.1 7.6-7.73zm-7.6 5.86c-3.1 0-5.12-2.15-5.12-5.86s2-5.9 5.12-5.9 5.1 2.2 5.1 5.9-2 5.86-5.1 5.86zm-11.45-3.32v-5.07c0-2.43-1.42-3.8-3.46-3.8-2.1 0-3.33 1.34-3.33 3.32v5.55H6.42v5.6h2.52v-5.9c0-1.2.6-1.84 1.48-1.84.86 0 1.34.58 1.34 1.74v6h2.53v-5.6zm13.1-9.94c-1.4 0-2.3.8-2.3 2.05s.9 2 2.3 2 2.34-.76 2.34-2-.94-2.05-2.34-2.05zm0 1.2c.6 0 1 .32 1 .86 0 .5-.4.85-1 .85s-1-.34-1-.85c0-.54.4-.86 1-.86zm-17 12.1v-5.07c0-2.43-1.42-3.8-3.46-3.8-2.1 0-3.33 1.34-3.33 3.32v5.55H2.43v5.6h2.52v-5.9c0-1.2.6-1.84 1.48-1.84.86 0 1.34.58 1.34 1.74v6h2.52v-5.6zm23.8-12.1c-1.4 0-2.3.8-2.3 2.05s.9 2 2.3 2 2.34-.76 2.34-2-.94-2.05-2.34-2.05zm0 1.2c.6 0 1 .32 1 .86 0 .5-.4.85-1 .85s-1-.34-1-.85c0-.54.4-.86 1-.86z"/>
+                       {/* Simplified Apple Pay Logo representation */}
+                       <rect x="0" y="0" width="40" height="24" rx="4" fill="none" stroke="currentColor" strokeWidth="1"/>
+                       <text x="20" y="16" fontSize="8" textAnchor="middle" fontWeight="bold" fill="currentColor">Apple Pay</text>
+                     </svg>
+                     <svg className="h-5 w-auto" viewBox="0 0 24 16" fill="currentColor">
+                        <path d="M19.16 3.12l-2.06 9.76h-2.1l2.06-9.76h2.1zm-8.4 0l-2.06 9.76h-2.1L8.66 3.12h2.1zm-8.4 0l-2.06 9.76h-2.1L2.36 3.12h2.1z" opacity="0"/>
+                        <path d="M11.9 0C5.3 0 0 5.3 0 11.9s5.3 11.9 11.9 11.9 11.9-5.3 11.9-11.9S18.5 0 11.9 0zm0 21.8c-5.5 0-9.9-4.4-9.9-9.9S6.4 2 11.9 2s9.9 4.4 9.9 9.9-4.4 9.9-9.9 9.9z" opacity="0"/>
+                        <circle cx="10" cy="8" r="7" fill="currentColor" opacity="0.6"/>
+                        <circle cx="14" cy="8" r="7" fill="currentColor" opacity="0.6"/>
+                        <text x="12" y="15" fontSize="4" textAnchor="middle" fontWeight="black" fill="currentColor">MASTERCARD</text>
+                     </svg>
+                     <svg className="h-4 w-auto" viewBox="0 0 24 8" fill="currentColor">
+                        <path d="M0 0h2.5l1.5 5 1.5-5h2.5L5 8H3L0 0zm10 0h2v8h-2V0zm5 0h8v2h-8V0zm0 3h8v2h-8V3zm0 3h8v2h-8V6z" opacity="0"/>
+                        <text x="12" y="7" fontSize="8" textAnchor="middle" fontWeight="black" fontStyle="italic" fill="currentColor">VISA</text>
+                     </svg>
+                   </div>
+                   <div className="flex items-center gap-1.5 opacity-20 text-[8px] font-black uppercase tracking-widest">
+                     <Shield className="w-2.5 h-2.5" />
+                     Secure 256-bit SSL Payment
+                   </div>
+                 </div>
+                 
                  <p className="text-[10px] font-black uppercase tracking-widest text-black/30">One-time payment • No subscription needed</p>
                </div>
             </motion.div>
@@ -848,6 +899,19 @@ export default function Home() {
                     <ChevronRight className="w-5 h-5 group-hover/btn:translate-x-1 transition-transform" />
                   </span>
                  </PaystackButton>
+                 
+                 {/* Trust Badges */}
+                 <div className="flex flex-col items-center gap-3 pt-2">
+                   <div className="flex items-center gap-4 opacity-30 grayscale hover:opacity-50 transition-opacity">
+                     <div className="flex items-center border border-black/20 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter text-black/60">Apple Pay</div>
+                     <div className="flex items-center border border-black/20 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter text-black/60">Visa</div>
+                     <div className="flex items-center border border-black/20 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter text-black/60">Mastercard</div>
+                   </div>
+                   <div className="flex items-center gap-1.5 opacity-20 text-[8px] font-black uppercase tracking-widest text-black">
+                     <Shield className="w-2.5 h-2.5" />
+                     Secure International Payment
+                   </div>
+                 </div>
               </div>
             </div>
           </div>

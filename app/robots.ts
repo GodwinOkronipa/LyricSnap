@@ -7,6 +7,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: ["/api/", "/render/"],
     },
-    sitemap: "https://lyricsnap.app/sitemap.xml",
+    sitemap: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://lyricsnap.app'}/sitemap.xml`,
   };
 }

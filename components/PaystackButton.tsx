@@ -29,6 +29,7 @@ export default function PaystackButton({
     publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY!,
     currency: 'GHS',
     label: 'LyricSnap Studio Pro (Flywheel Technologies)',
+    channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer', 'apple_pay'],
   };
 
   const initializePayment: any = usePaystackPayment(config);

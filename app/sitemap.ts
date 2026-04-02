@@ -1,7 +1,7 @@
 import { MetadataRoute } from "next";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = "https://lyricsnap.app";
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://lyricsnap.app";
 
   return [
     {
