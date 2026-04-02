@@ -368,8 +368,28 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       return;
     }
 
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    // 1. IOS Popup Blocker Bypass: Open tab synchronously
+    let iosTab: Window | null = null;
+    if (isIOS) {
+       iosTab = window.open('', '_blank');
+       if (iosTab) {
+         iosTab.document.write(`
+           <html>
+             <body style="margin:0; background: #080808; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh;">
+               <div style="width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+               <p style="margin-top: 20px; font-weight: bold; opacity: 0.5;">Crafting your Snap...</p>
+               <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+             </body>
+           </html>
+         `);
+       }
+    }
+
     setGenerating(true);
     analytics.trackGenerateStart(selectedSong.title, selectedSong.artist);
+    
     try {
       const params = new URLSearchParams({
         title: selectedSong.title,
@@ -379,38 +399,25 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
         template: template,
         blur: blurAmount.toString(),
         vignette: vignette.toString(),
+        download: 'true', // Trigger native download prompt
       });
+
 
       if (selectedLines.length > 0) {
         params.set('lyrics', JSON.stringify(selectedLines));
       }
       
-      const response = await fetch(`/api/generate?${params.toString()}`);
-      if (response.ok) {
-        const blob = await response.blob();
-        
-        // iOS Safari Compatibility: Use FileReader to convert to Data URL and open in new tab
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        
-        if (isIOS) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-             const base64data = reader.result;
-             const newTab = window.open();
-             if (newTab) {
-               newTab.document.write(`
-                 <html>
-                   <body style="margin:0; background: #050505; display: flex; flex-direction: column; align-items: center; justify-content: center; min-h-screen;">
-                     <img src="${base64data}" style="max-width: 100%; height: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border-radius: 20px;" />
-                     <p style="color: white; font-family: sans-serif; font-weight: bold; margin-top: 20px; opacity: 0.5; font-size: 14px;">Long press image to save to Photos</p>
-                     <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; border-radius: 10px; border: none; background: white; font-weight: bold;">Close</button>
-                   </body>
-                 </html>
-               `);
-             }
-          };
-          reader.readAsDataURL(blob);
-        } else {
+      const apiUri = `/api/generate?${params.toString()}`;
+
+      if (isIOS && iosTab) {
+        // For iOS, redirect the already-open tab directly to the API URL
+        // The server will respond with Content-Disposition: attachment, triggering the native popup
+        iosTab.location.href = apiUri;
+      } else {
+        const response = await fetch(apiUri);
+        if (response.ok) {
+          const blob = await response.blob();
+          
           // Standard Download for Desktop/Android
           const url = window.URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -420,50 +427,54 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
           a.click();
           window.URL.revokeObjectURL(url);
           document.body.removeChild(a);
-        }
-        
-        analytics.trackDownloadComplete(selectedSong.title, selectedSong.artist);
-        
-        const newCount = usageCount + 1;
-        
-        // Save to Supabase if logged in
-        if (user) {
-          await supabase.from('generations').insert({
-            user_id: user.id,
-            title: selectedSong.title,
-            artist: selectedSong.artist,
-            artwork: selectedSong.artwork,
-            lyrics: selectedLines
-          });
-          
-          await supabase.from('profiles').update({ usage_count: newCount }).eq('id', user.id);
-          fetchHistory(user.id);
         } else {
-          // Guest usage
-          localStorage.setItem('lyric_snap_usage', newCount.toString());
-          
-          // Store guest history in localStorage as well for later sync
-          const guestHistory = JSON.parse(localStorage.getItem('lyric_snap_history') || '[]');
-          guestHistory.unshift({
-            title: selectedSong.title,
-            artist: selectedSong.artist,
-            artwork: selectedSong.artwork,
-            lyrics: selectedLines,
-            created_at: new Date().toISOString()
-          });
-          localStorage.setItem('lyric_snap_history', JSON.stringify(guestHistory.slice(0, 5)));
+          throw new Error('Failed to generate image');
         }
-        
-        setUsageCount(newCount);
       }
+
+      analytics.trackDownloadComplete(selectedSong.title, selectedSong.artist);
+      
+      const newCount = usageCount + 1;
+      
+      // Save to Supabase if logged in
+      if (user) {
+        await supabase.from('generations').insert({
+          user_id: user.id,
+          title: selectedSong.title,
+          artist: selectedSong.artist,
+          artwork: selectedSong.artwork,
+          lyrics: selectedLines
+        });
+        
+        await supabase.from('profiles').update({ usage_count: newCount }).eq('id', user.id);
+        fetchUserProfile(user.id, user.email!); // Refetch to update UI accurately
+      } else {
+        // Guest usage
+        localStorage.setItem('lyric_snap_usage', newCount.toString());
+        
+        // Store guest history in localStorage
+        const guestHistory = JSON.parse(localStorage.getItem('lyric_snap_history') || '[]');
+        guestHistory.unshift({
+          title: selectedSong.title,
+          artist: selectedSong.artist,
+          artwork: selectedSong.artwork,
+          lyrics: selectedLines,
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('lyric_snap_history', JSON.stringify(guestHistory.slice(0, 5)));
+      }
+      
+      setUsageCount(newCount);
     } catch (err: any) {
       console.error(err);
+      if (isIOS && iosTab) iosTab.close();
       alert('Generation failed. Please try again.');
       analytics.trackError('generation_failed', err.message);
     } finally {
       setGenerating(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-background text-white selection:bg-pink-500/30 selection:text-white font-sans noise-bg premium-mesh">

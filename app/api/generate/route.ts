@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 🛡️ SECURITY: Server-side Auth & Limit Check
-  const supabaseServer = createSupabaseServerClient();
+  const supabaseServer = await createSupabaseServerClient();
   const sessionData = await supabaseServer.auth.getSession();
   const session = sessionData.data.session;
   
@@ -105,13 +105,20 @@ export async function GET(req: NextRequest) {
       console.error('Failed to log generation:', dbError);
     }
 
-    return new NextResponse(buffer as any, {
-      headers: {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
+
+    const headers = new Headers({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=31536000, immutable',
     });
+
+    if (searchParams.get('download') === 'true') {
+      const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_lyricsnap.png`;
+      headers.set('Content-Disposition', `attachment; filename="${filename}"`);
+    }
+
+    return new NextResponse(buffer as any, { headers });
   } catch (error: any) {
+
     console.error('Screenshot error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
