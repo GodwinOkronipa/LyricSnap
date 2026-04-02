@@ -22,7 +22,7 @@ export default function PaystackButton({
   className,
   children 
 }: PaystackButtonProps) {
-  const config = {
+  const config = React.useMemo(() => ({
     reference: (new Date()).getTime().toString(),
     email: email || "guest@lyricsnap.app",
     amount: amount,
@@ -30,7 +30,7 @@ export default function PaystackButton({
     currency: 'GHS',
     label: 'LyricSnap Studio Pro (Flywheel Technologies)',
     channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer', 'apple_pay'],
-  };
+  }), [email, amount]);
 
   const initializePayment: any = usePaystackPayment(config);
 

@@ -1,0 +1,54 @@
+
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                             <button 
+                              disabled={!isPro}
+                              onClick={() => setTemplate('classic')}
+                              type="button"
+                              className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'classic' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                             >
+                               Classic
+                             </button>
+                             <button 
+                              disabled={!isPro}
+                              type="button"
+                              onClick={() => setTemplate('modern')}
+                              className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'modern' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                             >
+                               Modern
+                             </button>
+                          </div>
+
+                          <div className="space-y-4 pt-2">
+                             <div className="space-y-2">
+                               <div className="flex justify-between text-[10px] font-bold text-white/30 uppercase tracking-widest">
+                                 <span>Studio Blur</span>
+                                 <span>{blurAmount}px</span>
+                               </div>
+                               <input 
+                                 type="range" min="0" max="150" step="10"
+                                 value={blurAmount}
+                                 disabled={!isPro}
+                                 aria-label="Studio Blur Amount"
+                                 title="Adjust the background blur intensity"
+                                 onChange={(e) => setBlurAmount(parseInt(e.target.value))}
+                                 className="w-full accent-pink-500 opacity-60 hover:opacity-100 transition-opacity"
+                               />
+                             </div>
+                             <div className="space-y-2">
+                               <div className="flex justify-between text-[10px] font-bold text-white/30 uppercase tracking-widest">
+                                 <span>Vignette Mood</span>
+                                 <span>{vignette}%</span>
+                               </div>
+                               <input 
+                                 type="range" min="0" max="100" step="5"
+                                 value={vignette}
+                                 disabled={!isPro}
+                                 aria-label="Vignette Intensity"
+                                 title="Adjust the dark overlay intensity around the edges"
+                                 onChange={(e) => setVignette(parseInt(e.target.value))}
+                                 className="w-full accent-pink-500 opacity-60 hover:opacity-100 transition-opacity"
+                               />
+                             </div>
+                          </div>
+                        </div>

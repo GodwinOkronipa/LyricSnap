@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { AuthModal } from '@/components/AuthModal';
 
 import dynamic from 'next/dynamic';
+import { useDebounce } from '@/hooks/useDebounce';
 
 const PaystackButton = dynamic<any>(() => import('@/components/PaystackButton'), { ssr: false });
 
@@ -28,6 +29,10 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [lyrics, setLyrics] = useState<string[] | null>(null);
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
   const [fetchingLyrics, setFetchingLyrics] = useState(false);
+  const [suggestions, setSuggestions] = useState<Song[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const [usageCount, setUsageCount] = useState(0);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -41,6 +46,10 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [vignette, setVignette] = useState(40);
   const [template, setTemplate] = useState<'classic' | 'modern'>('classic');
   const [waitlistJoined, setWaitlistJoined] = useState(false);
+
+  const scrollToPro = () => {
+    document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   const previewRef = useRef<HTMLDivElement>(null);
   const initialLoadRef = useRef(false);
@@ -242,6 +251,91 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     }
   };
 
+  const debouncedQuery = useDebounce(query, 300);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setSuggestions([]);
+      setSelectedIndex(-1);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchSuggestions = async () => {
+      if (debouncedQuery.length < 2) {
+        setSuggestions([]);
+        setSelectedIndex(-1);
+        return;
+      }
+      
+      // Don't search if the query exactly matches the selected song (already selected)
+      if (selectedSong && `${selectedSong.title} ${selectedSong.artist}`.toLowerCase() === debouncedQuery.toLowerCase()) {
+        return;
+      }
+
+      setIsSearchingSuggestions(true);
+      try {
+        const data = await searchSongs(debouncedQuery);
+        if (active) {
+          setSuggestions(data.slice(0, 6)); // Top 6 suggestions
+          setSelectedIndex(-1); // Reset selection
+        }
+      } catch (err) {
+        if (active) console.error('Failed to fetch suggestions:', err);
+      } finally {
+        if (active) setIsSearchingSuggestions(false);
+      }
+    };
+
+    fetchSuggestions();
+
+    return () => {
+      active = false;
+    };
+  }, [debouncedQuery, selectedSong]);
+
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === 'Enter' && selectedIndex >= 0) {
+      e.preventDefault();
+      selectSuggestion(suggestions[selectedIndex]);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
+  };
+
+  const selectSuggestion = (song: Song) => {
+    setSelectedSong(song);
+    setQuery(`${song.title} ${song.artist}`);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    analytics.trackSelectSong(song.title, song.artist);
+    // Automatically fetch lyrics for a snappy experience
+    handleFetchLyricsForSong(song);
+  };
+
+  const handleFetchLyricsForSong = async (song: Song) => {
+    setFetchingLyrics(true);
+    try {
+      const data = await fetchLyrics(song.title, song.artist);
+      setLyrics(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setFetchingLyrics(false);
+    }
+  };
+
   const handleFetchLyrics = async () => {
     if (!selectedSong) return;
     setFetchingLyrics(true);
@@ -294,14 +388,39 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       const response = await fetch(`/api/generate?${params.toString()}`);
       if (response.ok) {
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${selectedSong.title.replace(/\s+/g, '_')}_LyricSnap.png`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+        
+        // iOS Safari Compatibility: Use FileReader to convert to Data URL and open in new tab
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        
+        if (isIOS) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+             const base64data = reader.result;
+             const newTab = window.open();
+             if (newTab) {
+               newTab.document.write(`
+                 <html>
+                   <body style="margin:0; background: #050505; display: flex; flex-direction: column; align-items: center; justify-content: center; min-h-screen;">
+                     <img src="${base64data}" style="max-width: 100%; height: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border-radius: 20px;" />
+                     <p style="color: white; font-family: sans-serif; font-weight: bold; margin-top: 20px; opacity: 0.5; font-size: 14px;">Long press image to save to Photos</p>
+                     <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; border-radius: 10px; border: none; background: white; font-weight: bold;">Close</button>
+                   </body>
+                 </html>
+               `);
+             }
+          };
+          reader.readAsDataURL(blob);
+        } else {
+          // Standard Download for Desktop/Android
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${selectedSong.title.replace(/\s+/g, '_')}_LyricSnap.png`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        }
         
         analytics.trackDownloadComplete(selectedSong.title, selectedSong.artist);
         
@@ -489,7 +608,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
             </p>
 
             {/* Main Action Tool */}
-            <div id="tool" className="max-w-5xl mx-auto bg-white/[0.05] border border-white/15 rounded-[48px] p-8 md:p-12 backdrop-blur-3xl shadow-2xl relative overflow-hidden group/tool">
+            <div id="tool" className="max-w-5xl mx-auto bg-white/[0.05] border border-white/15 rounded-[48px] p-4 md:p-12 backdrop-blur-3xl shadow-2xl relative overflow-hidden group/tool">
               <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 to-blue-500/5 opacity-0 group-hover/tool:opacity-100 transition-opacity pointer-events-none" />
               
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start relative z-10">
@@ -500,12 +619,15 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                     <p className="text-white/40">Search for any track to get started.</p>
                   </div>
 
-                  <form onSubmit={handleSearch} className="relative group">
+                  <form onSubmit={handleSearch} className="relative group/search">
                     <input
                       type="text"
                       placeholder="Enter song name or paste link..."
                       value={query}
+                      onFocus={() => setShowSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                       onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={handleKeyDown}
                       className="w-full bg-white/10 border border-white/15 rounded-full py-5 px-8 pr-20 text-lg focus:outline-none focus:ring-2 focus:ring-pink-500/50 transition-all placeholder:text-white/20 backdrop-blur-xl"
                     />
                     <button 
@@ -515,6 +637,48 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                     >
                       <Search className="w-5 h-5" />
                     </button>
+
+                    {/* Suggestions Dropdown */}
+                    <AnimatePresence>
+                      {showSuggestions && query.length >= 2 && (suggestions.length > 0 || isSearchingSuggestions) && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="absolute top-full left-0 right-0 mt-3 z-[100] bg-[#0A0A0A]/80 backdrop-blur-3xl border border-white/15 rounded-[32px] overflow-hidden shadow-[0_30px_60px_-12px_rgba(0,0,0,0.5)]"
+                        >
+                          {isSearchingSuggestions && (
+                            <div className="p-4 flex items-center gap-3 border-b border-white/10 opacity-40">
+                              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                              <span className="text-[10px] font-black uppercase tracking-[0.2em]">Finding tracks...</span>
+                            </div>
+                          )}
+                          <div className="p-2 flex flex-col gap-1">
+                            {suggestions.map((song, index) => (
+                              <button
+                                key={song.id}
+                                type="button"
+                                onMouseEnter={() => setSelectedIndex(index)}
+                                onClick={() => selectSuggestion(song)}
+                                className={`flex items-center gap-4 p-3 rounded-2xl transition-all text-left group/sugg ${selectedIndex === index ? 'bg-white/15' : 'hover:bg-white/10'}`}
+                              >
+                                <img src={song.artwork} alt="" className="w-12 h-12 rounded-xl object-cover shadow-2xl group-hover/sugg:scale-105 transition-transform" />
+                                <div className="flex-1 overflow-hidden">
+                                  <p className="font-bold truncate text-sm group-hover/sugg:text-pink-500 transition-colors">{song.title}</p>
+                                  <p className="text-white/30 text-[10px] truncate uppercase tracking-widest font-medium">{song.artist}</p>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-white/10 group-hover/sugg:text-white/40 group-hover/sugg:translate-x-1 transition-all" />
+                              </button>
+                            ))}
+                          </div>
+                          {suggestions.length === 0 && !isSearchingSuggestions && (
+                            <div className="p-8 text-center opacity-30">
+                              <p className="text-xs font-bold uppercase tracking-widest">No tracks found</p>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </form>
 
                   {/* Results scroll area */}
@@ -585,7 +749,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="flex flex-col items-center w-full"
                       >
-                        <div className="relative group/player mb-10 transform-gpu hover:rotate-1 transition-transform duration-700">
+                        <div className="relative group/player mb-10 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[400px] scale-[0.8] xs:scale-[0.9] sm:scale-100">
                           <MusicPlayer 
                             title={selectedSong.title}
                             artist={selectedSong.artist}
@@ -626,15 +790,15 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                           ) : (
                             <div className="bg-white/10 border border-white/20 rounded-[32px] p-6 overflow-hidden backdrop-blur-xl">
                               <div className="flex justify-between items-center mb-4 px-2">
-                                <span className="text-xs font-black uppercase tracking-widest text-white/30">Select Lyrics</span>
-                                <span className="text-xs font-black text-pink-500">{selectedLines.length}/5</span>
+                                <div className="flex flex-col"><span className="text-[10px] font-black uppercase tracking-widest text-white/30 leading-none mb-1">Lyric Selection</span><span className="text-[10px] text-white/40">Choose up to 5 lines</span></div>
+                                <span className="text-xs font-black text-pink-500 bg-pink-500/10 px-2 py-1 rounded-lg border border-pink-500/20">{selectedLines.length}/5</span>
                               </div>
-                              <div className="max-h-[120px] overflow-y-auto px-1 flex flex-col gap-1 custom-scrollbar">
+                              <div className="max-h-[320px] shadow-inner group/lyrics-window overflow-y-auto px-1 flex flex-col gap-1 custom-scrollbar">
                                 {lyrics.slice(0, 40).map((line, i) => (
                                   <button
                                     key={i}
                                     onClick={() => toggleLine(line)}
-                                    className={`p-3 rounded-xl text-left text-sm transition-all ${selectedLines.includes(line) ? 'bg-pink-500 text-white font-bold shadow-lg shadow-pink-500/20' : 'hover:bg-white/10 text-white/50'}`}
+                                    className={`p-4 rounded-2xl text-left text-sm transition-all duration-300 relative overflow-hidden group/line ${selectedLines.includes(line) ? 'bg-white text-black font-bold shadow-xl scale-[1.02]' : 'hover:bg-white/10 text-white/50'}`}
                                   >
                                     {line}
                                   </button>
@@ -644,29 +808,62 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                           )}
                         </div>
 
-                        {/* Studio Customization (Pro Only) */}
-                        <div className="w-full space-y-6 mb-8 mt-2 p-6 bg-white/5 border border-white/10 rounded-[32px] backdrop-blur-xl">
+
+                        <Button 
+                          onClick={handleDownload}
+                          disabled={generating}
+                          className="w-full h-24 bg-gradient-to-br from-pink-500 via-rose-500 to-orange-500 text-white hover:opacity-95 rounded-[32px] text-2xl font-black transition-all flex flex-col items-center justify-center gap-1 shadow-[0_20px_60px_-15px_rgba(236,72,153,0.4)] active:scale-[0.98] disabled:opacity-50 group/download mt-6"
+                        >
+                           <div className="flex items-center gap-3">
+                             <span>{generating ? "Crafting your Snap..." : "Generate & Download"}</span>
+                             {!generating && (
+                               <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center group-hover/download:bg-white group-hover/download:text-pink-500 transition-all border border-white/10 shadow-lg">
+                                 <Download className="w-5 h-5 group-hover/download:translate-y-0.5 transition-transform" />
+                               </div>
+                             )}
+                           </div>
+                           {!generating && (
+                             <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">High-Res Studio Export</span>
+                           )}
+                        </Button>
+                        <p className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-white/20 mb-12">
+                          {usageCount >= 1 ? "Limit Reached • Upgrade to Unlock" : "1 Free Shot remaining"}
+                        </p>
+
+                        {/* Studio Customization (Moved here for better mobile UX) */}
+                        <div 
+                          onClick={() => !isPro && scrollToPro()}
+                          className={`w-full space-y-6 p-6 bg-white/5 border border-white/10 rounded-[32px] backdrop-blur-xl transition-all ${!isPro ? 'cursor-pointer hover:border-pink-500/30' : ''}`}
+                        >
                           <div className="flex items-center justify-between">
                              <h4 className="text-xs font-black uppercase tracking-widest text-white/40">Studio Controls</h4>
-                             {!isPro && (
-                               <span className="text-[10px] font-black bg-pink-500 text-white px-2 py-0.5 rounded-full">PRO ONLY</span>
+                             {!isPro ? (
+                               <span className="text-[10px] font-black bg-pink-500 text-white px-2 py-0.5 rounded-full animate-pulse">PRO ONLY</span>
+                             ) : (
+                               <span className="text-[10px] font-black text-pink-500 px-2 py-0.5 border border-pink-500/30 rounded-full">UNLOCKED</span>
                              )}
                           </div>
                           
                           <div className="grid grid-cols-2 gap-4">
                              <button 
-                              disabled={!isPro}
-                              onClick={() => setTemplate('classic')}
-                              type="button"
-                              className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'classic' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                               disabled={!isPro}
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 setTemplate('classic');
+                               }}
+                               type="button"
+                               className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'classic' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
                              >
                                Classic
                              </button>
                              <button 
-                              disabled={!isPro}
-                              type="button"
-                              onClick={() => setTemplate('modern')}
-                              className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'modern' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                               disabled={!isPro}
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 setTemplate('modern');
+                               }}
+                               type="button"
+                               className={`h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${template === 'modern' ? 'bg-white text-black' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
                              >
                                Modern
                              </button>
@@ -705,18 +902,6 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                              </div>
                           </div>
                         </div>
-
-                        <Button 
-                          onClick={handleDownload}
-                          disabled={generating}
-                          className="w-full h-20 bg-gradient-to-r from-pink-600 to-orange-500 text-white hover:opacity-90 rounded-full text-2xl font-black transition-all flex items-center justify-center gap-3 shadow-[0_20px_50px_rgba(236,72,153,0.3)] active:scale-[0.98] disabled:opacity-50 group/download"
-                        >
-                          {generating ? "Crafting your Snap..." : "Generate & Download"}
-                          {!generating && <Download className="w-6 h-6 group-hover/download:translate-y-1 transition-transform" />}
-                        </Button>
-                        <p className="mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-white/20">
-                          {usageCount >= 1 ? "Limit Reached • Upgrade to Unlock" : "1 Free Shot remaining"}
-                        </p>
                       </motion.div>
                     ) : (
                       <div className="w-[400px] h-[600px] rounded-[48px] border-2 border-dashed border-white/15 bg-white/[0.02] flex flex-col items-center justify-center text-center p-12 space-y-6 backdrop-blur-sm">
@@ -734,20 +919,20 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
         </section>
 
         {/* HOW IT WORKS */}
-        <section id="how-it-works" className="py-32 bg-white/[0.02] border-y border-white/10 backdrop-blur-3xl relative overflow-hidden">
-          <div className="max-w-7xl mx-auto px-8 relative z-10">
-            <h2 className="text-6xl font-heading text-center mb-24 tracking-tighter">How it Works</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <section id="how-it-works" className="py-24 bg-white/[0.02] border-y border-white/10 backdrop-blur-3xl relative overflow-hidden">
+          <div className="max-w-7xl mx-auto px-4 md:px-8 relative z-10">
+            <h2 className="text-5xl md:text-6xl font-heading text-center mb-16 md:mb-24 tracking-tighter">How it Works</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8">
               {[
                 { step: "01", title: "Search", desc: "Paste a song link or search from 100M+ tracks." },
                 { step: "02", title: "Customize", desc: "Select the lyrics that hit different." },
                 { step: "03", title: "Render", desc: "Our engine crafts a pixel-perfect image." },
                 { step: "04", title: "Share", desc: "Download & flex on IG or TikTok." }
               ].map((item, i) => (
-                <div key={i} className="relative p-12 bg-white/[0.08] border border-white/10 rounded-[48px] group transition-all hover:bg-white/15 h-full backdrop-blur-md shadow-xl">
-                  <span className="text-7xl font-heading opacity-30 mb-8 block transition-opacity group-hover:opacity-50">{item.step}</span>
-                  <h3 className="text-2xl font-bold mb-4 tracking-tight">{item.title}</h3>
-                  <p className="text-white/40 leading-relaxed text-sm">{item.desc}</p>
+                <div key={i} className="relative p-6 bg-white/[0.08] border border-white/10 rounded-[40px] md:rounded-[48px] group transition-all hover:bg-white/15 h-full backdrop-blur-md shadow-xl flex flex-col justify-center text-center md:text-left md:p-12">
+                  <span className="text-4xl md:text-7xl font-heading opacity-30 mb-2 md:mb-8 block transition-opacity group-hover:opacity-50">{item.step}</span>
+                  <h3 className="text-lg md:text-2xl font-bold mb-2 md:mb-4 tracking-tight">{item.title}</h3>
+                  <p className="text-white/40 leading-relaxed text-[12px] md:text-sm">{item.desc}</p>
                 </div>
               ))}
             </div>
