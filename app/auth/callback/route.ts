@@ -1,5 +1,5 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
+
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -15,25 +15,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: CookieOptions) {
-            cookieStore.set({ name, value, ...options });
-          },
-          remove(name: string, options: CookieOptions) {
-            cookieStore.set({ name, value: '', ...options });
-          },
-        },
-      }
-    );
-
+    const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     
     if (!error) {
@@ -44,9 +26,9 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/auth/auth-code-error?error=${encodeURIComponent(error.message)}`);
   } catch (err: any) {
     console.error('Fatal redirect error:', err);
-    // If it's a headers-already-sent or cookies issue, try a client-side redirect fallback
     return new Response(`Error: ${err.message}. Please try again.`, { status: 500 });
   }
+
 }
 
 
