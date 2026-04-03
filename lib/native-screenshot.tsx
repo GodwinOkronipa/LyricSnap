@@ -192,21 +192,35 @@ export async function generateMusicPlayerImage(props: MusicPlayerProps): Promise
 
   try {
     // Convert JSX to SVG
+    console.log('[Satori] Loading fonts...');
     const fonts = await loadFont();
+    console.log('[Satori] Fonts loaded, converting JSX to SVG...');
+    
     const svg = await satori(jsx, {
       width: 800,
       height: 800,
       fonts: fonts as any,
     });
+    
+    console.log('[Satori] SVG generated, size:', svg.length);
 
     // Convert SVG to PNG using Sharp (Vercel-compatible, no native binding issues)
-    const pngBuffer = await sharp(Buffer.from(svg))
+    console.log('[Sharp] Converting SVG to PNG...');
+    
+    // Sharp needs SVG as a Buffer with proper svg format
+    const svgBuffer = Buffer.from(svg, 'utf-8');
+    const pngBuffer = await sharp(svgBuffer, { density: 100 })
       .png()
       .toBuffer();
     
+    console.log('[Sharp] PNG generated, size:', pngBuffer.length);
     return pngBuffer;
   } catch (error) {
-    console.error('Error generating image:', error);
+    console.error('[Image Generation] Error:', error);
+    if (error instanceof Error) {
+      console.error('[Image Generation] Error message:', error.message);
+      console.error('[Image Generation] Error stack:', error.stack);
+    }
     throw error;
   }
 }

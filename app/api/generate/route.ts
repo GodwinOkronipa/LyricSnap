@@ -82,9 +82,25 @@ export async function GET(req: NextRequest) {
 
     console.log('[API] Generating image for:', title);
     console.log('[API] Using native image generation (no browser required)');
+    console.log('[API] Lyrics param:', lyrics ? 'present' : 'absent');
+    console.log('[API] Watermark enabled:', watermark);
 
     // Generate image natively without browser
-    const parsedLyrics = lyrics ? JSON.parse(decodeURIComponent(lyrics)) : undefined;
+    let parsedLyrics: any[] | undefined = undefined;
+    if (lyrics) {
+      try {
+        const decodedLyrics = decodeURIComponent(lyrics);
+        console.log('[API] Decoded lyrics string:', decodedLyrics.substring(0, 100));
+        parsedLyrics = JSON.parse(decodedLyrics);
+        console.log('[API] Successfully parsed lyrics, count:', Array.isArray(parsedLyrics) ? parsedLyrics.length : 'invalid');
+      } catch (parseError) {
+        console.warn('[API] Failed to parse lyrics:', parseError);
+        // Continue without lyrics if parsing fails
+      }
+    }
+    
+    console.log('[API] Calling generateMusicPlayerImage with:', { title, artist, watermark, template });
+    
     const buffer = await generateMusicPlayerImage({
       title,
       artist,
