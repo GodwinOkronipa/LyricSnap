@@ -137,7 +137,13 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     try {
       const response = await fetch('/api/auth/status');
       const data = await response.json();
+      console.log('[Auth Status]', data); // Debug logging
+      console.log('[Pro Status] Setting isPro to:', data.is_pro);
       setIsPro(data.is_pro);
+      if (data.is_admin) {
+        console.log('✅ Admin user detected - Pro status FORCED to true');
+        setIsPro(true); // Force true for admins
+      }
     } catch (err) {
       console.error('Failed to check pro status:', err);
     }
@@ -464,8 +470,18 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const handleDownload = async () => {
     if (!selectedSong) return;
 
+    // Re-check pro status right before download to ensure it's current
+    const statusResponse = await fetch('/api/auth/status');
+    const statusData = await statusResponse.json();
+    const currentlyPro = statusData.is_pro;
+    
+    console.log('[Download] Current Pro Status:', currentlyPro);
+    console.log('[Download] Is Admin:', statusData.is_admin);
+
     // BUSINESS LOGIC: 1 Free Screenshot for Guest
-    if (!isPro && usageCount >= 1) {
+    console.log('[Download Check] isPro:', currentlyPro, 'usageCount:', usageCount);
+    if (!currentlyPro && usageCount >= 1) {
+      console.log('[Download Blocked] User not pro and has used free credit');
       setShowUpgradeModal(true);
       return;
     }
