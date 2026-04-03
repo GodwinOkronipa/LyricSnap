@@ -1,6 +1,5 @@
 import React from 'react';
 import satori from 'satori';
-import { Resvg } from '@resvg/resvg-js';
 import fs from 'fs';
 import path from 'path';
 
@@ -202,6 +201,9 @@ export async function generateMusicPlayerImage(props: MusicPlayerProps): Promise
       fonts,
     });
 
+    // Dynamically import Resvg only when needed (avoids Turbopack issues with native bindings)
+    const { Resvg } = await import('@resvg/resvg-js');
+    
     // Convert SVG to PNG using resvg
     const resvg = new Resvg(svg, {
       fitTo: {

@@ -2,9 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   transpilePackages: ['react-paystack'],
-  experimental: {
-    turbopack: false, // Disable Turbopack - resvg-js has native bindings incompatible with Turbopack
-  },
+  serverComponentsExternalPackages: ['@resvg/resvg-js'],
   
   // 🔒 Security Headers
   async headers() {
