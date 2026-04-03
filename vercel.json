@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "buildCommand": "TURBOPACK=false npm run build",
+  "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "cleanUrls": true,
   "trailingSlash": false

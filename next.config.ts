@@ -1,14 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['react-paystack', '@resvg/resvg-js'],
-  serverComponentsExternalPackages: ['@resvg/resvg-js'],
-  // Use webpack instead of Turbopack for production (resvg-js has native bindings)
-  webpack: (config, { isServer }) => {
-    if (isServer) {
-      config.externals.push('@resvg/resvg-js');
-    }
-    return config;
+  transpilePackages: ['react-paystack'],
+  experimental: {
+    turbopack: false, // Disable Turbopack - resvg-js has native bindings incompatible with Turbopack
   },
   
   // 🔒 Security Headers
