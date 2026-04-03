@@ -2,7 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   transpilePackages: ['react-paystack'],
-  serverComponentsExternalPackages: ['@resvg/resvg-js'],
   
   // 🔒 Security Headers
   async headers() {

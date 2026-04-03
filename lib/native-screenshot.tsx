@@ -1,24 +1,22 @@
 import React from 'react';
 import satori from 'satori';
+import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
 // Load font for Satori
 async function loadFont() {
-  const fontPath = path.join(process.cwd(), 'public', 'fonts');
-  
-  // Fallback fonts that come with your system
   const fonts = [
     {
       name: 'sans-serif',
       data: fs.readFileSync(path.join(process.cwd(), 'node_modules', 'satori', 'dist', 'fonts', 'noto-sans-v21-latin-regular.ttf')),
-      weight: 400,
+      weight: 400 as any,
       style: 'normal',
     },
     {
       name: 'sans-serif',
       data: fs.readFileSync(path.join(process.cwd(), 'node_modules', 'satori', 'dist', 'fonts', 'noto-sans-v21-latin-700.ttf')),
-      weight: 700,
+      weight: 700 as any,
       style: 'normal',
     },
   ];
@@ -198,23 +196,18 @@ export async function generateMusicPlayerImage(props: MusicPlayerProps): Promise
     const svg = await satori(jsx, {
       width: 800,
       height: 800,
-      fonts,
+      fonts: fonts as any,
     });
 
-    // Dynamically import Resvg only when needed (avoids Turbopack issues with native bindings)
-    const { Resvg } = await import('@resvg/resvg-js');
+    // Convert SVG to PNG using Sharp (Vercel-compatible, no native binding issues)
+    const pngBuffer = await sharp(Buffer.from(svg))
+      .png()
+      .toBuffer();
     
-    // Convert SVG to PNG using resvg
-    const resvg = new Resvg(svg, {
-      fitTo: {
-        mode: 'original',
-      },
-    });
-
-    const pngBuffer = resvg.render().asPng();
     return pngBuffer;
   } catch (error) {
     console.error('Error generating image:', error);
     throw error;
   }
 }
+
