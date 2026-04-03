@@ -771,6 +771,26 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
             </Button>
           )}
         </div>
+
+        {/* Mobile Sign In/Out Button (Option 1) */}
+        <div className="md:hidden flex items-center gap-2">
+          {user ? (
+            <button 
+              onClick={handleSignOut}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
+              aria-label="Sign Out"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          ) : (
+            <button 
+              onClick={() => setShowAuthModal(true)}
+              className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full hover:bg-indigo-700 transition-colors active:scale-95"
+            >
+              Sign In
+            </button>
+          )}
+        </div>
       </nav>
 
       <main className="relative z-10 w-full">
