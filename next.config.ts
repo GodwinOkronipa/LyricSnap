@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'Content-Security-Policy',
-            value: `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.paystack.co https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.paystack.co https://genius.com https://itunes.apple.com https://*.supabase.co https://va.vercel-scripts.com; frame-src https://js.paystack.co; object-src 'none'; base-uri 'self'; form-action 'self';`,
+            value: `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.paystack.co https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.paystack.co https://genius.com https://itunes.apple.com https://lrclib.net https://*.supabase.co https://va.vercel-scripts.com; frame-src https://js.paystack.co; object-src 'none'; base-uri 'self'; form-action 'self';`,
           },
           {
             key: 'Permissions-Policy',
