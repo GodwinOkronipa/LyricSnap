@@ -18,8 +18,6 @@ import { useDebounce } from '@/hooks/useDebounce';
 
 const PaystackButton = dynamic<any>(() => import('@/components/PaystackButton'), { ssr: false });
 
-const ADMIN_EMAILS = ['godwinokro2020@gmail.com'];
-
 export default function LyricSnapClient({ initialSong }: { initialSong?: Song | null }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Song[]>([]);
@@ -49,6 +47,21 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       if (pending === 'true') setPendingProActivation(true);
     }
   }, []);
+
+  // Check auth status on mount and after auth changes (server-side authority)
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const response = await fetch('/api/auth/status');
+        const data = await response.json();
+        setIsPro(data.is_pro);
+      } catch (err) {
+        console.error('Failed to check auth status:', err);
+      }
+    };
+
+    checkStatus();
+  }, [user]);
   
   // Studio Customization State
   const [blurAmount, setBlurAmount] = useState(80);
@@ -91,12 +104,13 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
-        if (ADMIN_EMAILS.includes(currentUser.email!)) {
-           setIsPro(true);
-        }
+        // ✅ Server-side authority check instead of client-side
+        checkProsStatus();
         fetchUserProfile(currentUser.id, currentUser.email!);
         // Handle pending activation if user was already logged in but refresh happened
-        if (pendingProActivation) updateProStatus(currentUser.id);
+        if (pendingProActivation) {
+          verifyPendingPayment();
+        }
       }
     });
 
@@ -104,12 +118,11 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
-        if (ADMIN_EMAILS.includes(currentUser.email!)) {
-           setIsPro(true);
-        }
+        // ✅ Server-side authority check instead of client-side
+        checkProsStatus();
         fetchUserProfile(currentUser.id, currentUser.email!);
         if (pendingProActivation) {
-           updateProStatus(currentUser.id);
+           verifyPendingPayment();
            setPendingProActivation(false);
         }
       }
@@ -119,17 +132,51 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     return () => subscription.unsubscribe();
   }, [pendingProActivation]);
 
+  // 🛡️ Check pro status from server (source of truth)
+  const checkProsStatus = async () => {
+    try {
+      const response = await fetch('/api/auth/status');
+      const data = await response.json();
+      setIsPro(data.is_pro);
+    } catch (err) {
+      console.error('Failed to check pro status:', err);
+    }
+  };
+
+  // 🛡️ Verify pending payment reference after signup
+  const verifyPendingPayment = async () => {
+    const reference = localStorage.getItem('pending_payment_reference');
+    if (!reference) return;
+
+    try {
+      const response = await fetch('/api/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setIsPro(true);
+          localStorage.removeItem('pending_payment_reference');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to verify pending payment:', err);
+    }
+  };
+
   const fetchUserProfile = async (userId: string, email: string) => {
     const { data } = await supabase
       .from('profiles')
-      .select('usage_count, is_pro')
+      .select('usage_count')
       .eq('id', userId)
       .single();
     
     if (data) {
       setUsageCount(data.usage_count);
-      // Force Pro if admin, otherwise use DB value
-      setIsPro(ADMIN_EMAILS.includes(email) ? true : data.is_pro);
+      // 🛡️ Pro status is determined server-side only via /api/auth/status
     }
     fetchHistory(userId);
   };
@@ -198,26 +245,66 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   // Paystack Config - 0.49 instead of 0.99
   const paystackAmount = (0.49 * Number(process.env.NEXT_PUBLIC_GHS_CONVERSION_RATE || 15) * 100);
 
-  const onSuccess = (reference: any) => {
-    console.log('Payment Success:', reference);
-    if (!user) {
-      setPendingProActivation(true);
-      localStorage.setItem('pending_pro_activation', 'true');
-      setShowAuthModal(true);
-      setShowUpgradeModal(false);
-    } else {
-      updateProStatus(user.id);
-      setShowUpgradeModal(false);
+  const onSuccess = async (reference: any) => {
+    console.log('[Payment] Verifying payment:', reference);
+    
+    if (!reference) {
+      console.error('[Payment] No reference received from Paystack');
+      alert('Payment verification failed. Please contact support.');
+      return;
+    }
+
+    try {
+      if (!user) {
+        // Guest user - store reference for verification after signup
+        setPendingProActivation(true);
+        localStorage.setItem('pending_pro_activation', 'true');
+        localStorage.setItem('pending_payment_reference', reference);
+        setShowAuthModal(true);
+        setShowUpgradeModal(false);
+      } else {
+        // Authenticated user - verify payment server-side
+        const response = await fetch('/api/verify-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reference }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Payment verification failed');
+        }
+
+        const result = await response.json();
+        
+        if (result.success) {
+          console.log('[Payment] ✅ Pro status activated');
+          setIsPro(true);
+          setPendingProActivation(false);
+          localStorage.removeItem('pending_pro_activation');
+          localStorage.removeItem('pending_payment_reference');
+          setShowUpgradeModal(false);
+        } else {
+          throw new Error('Payment verification was not successful');
+        }
+      }
+    } catch (err: any) {
+      console.error('[Payment] Verification error:', err);
+      alert(`Payment verification failed: ${err.message}`);
     }
   };
 
   const onClose = () => {
-    console.log('closed');
+    console.log('[Payment] Payment modal closed');
   };
 
   const updateProStatus = async (userId: string) => {
-    const { error } = await supabase.from('profiles').update({ is_pro: true }).eq('id', userId);
-    if (!error) {
+    // 🛡️ This function is now only called after server-side verification
+    // For backward compatibility, verify again on the server
+    const response = await fetch('/api/auth/status');
+    const data = await response.json();
+    
+    if (data.is_pro) {
       setIsPro(true);
       setPendingProActivation(false);
       localStorage.removeItem('pending_pro_activation');

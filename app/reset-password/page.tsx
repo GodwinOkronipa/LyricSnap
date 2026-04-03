@@ -19,6 +19,25 @@ export default function ResetPasswordPage() {
     setLoading(true);
     setError(null);
 
+    // 🛡️ PASSWORD VALIDATION (minimum 12 chars, complexity)
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters long');
+      setLoading(false);
+      return;
+    }
+
+    // Check for complexity: at least 1 uppercase, 1 lowercase, 1 number, 1 special char
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasLowercase = /[a-z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+
+    if (!hasUppercase || !hasLowercase || !hasNumber) {
+      setError('Password must include uppercase, lowercase, and numbers');
+      setLoading(false);
+      return;
+    }
+
     try {
       const { error: resetError } = await supabase.auth.updateUser({
         password: password
@@ -84,9 +103,12 @@ export default function ResetPasswordPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={6}
+                  minLength={12}
                   className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-12 focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-white outline-none"
                 />
+                <p className="text-[10px] text-white/40 px-2 pt-1">
+                  Min 12 characters • Must include uppercase, lowercase, number
+                </p>
               </div>
 
               {error && (

@@ -47,3 +47,29 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ⚡️ Payments Table: Payment history and audit trail
+CREATE TABLE IF NOT EXISTS public.payments (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  paystack_reference text NOT NULL UNIQUE,
+  amount integer NOT NULL,
+  currency text NOT NULL DEFAULT 'GHS',
+  customer_email text NOT NULL,
+  status text NOT NULL DEFAULT 'pending',
+  metadata jsonb,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+);
+
+-- Enable RLS for Payments
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+-- Users can view their own payment history
+CREATE POLICY "Users can view own payments" ON public.payments FOR SELECT USING (auth.uid() = user_id);
+
+-- Create index for fast lookups
+CREATE INDEX IF NOT EXISTS idx_payments_reference ON public.payments(paystack_reference);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON public.payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_generations_user ON public.generations(user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);

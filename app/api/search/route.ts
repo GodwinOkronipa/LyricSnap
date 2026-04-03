@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { validateInput, ValidationError } from '@/lib/validation';
 
 export interface Song {
   id: number;
@@ -64,25 +66,62 @@ async function searchGenius(query: string): Promise<Song[]> {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const query = searchParams.get('q');
-  const type = searchParams.get('type') || 'tracks'; // 'tracks' (itunes) or 'lyrics' (genius)
-
-  if (!query) {
-    return NextResponse.json({ error: 'Query is required' }, { status: 400 });
+  // 🛡️ RATE LIMITING: 60 requests per minute per IP
+  const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 
+                   request.headers.get('x-real-ip') || 
+                   'unknown';
+  
+  if (!checkRateLimit(`search-${clientIp}`, 60, 60000)) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': '60' } }
+    );
   }
 
-  let results: Song[] = [];
+  const { searchParams } = new URL(request.url);
+  
+  // 🛡️ INPUT VALIDATION
+  try {
+    const validated = validateInput(
+      {
+        q: searchParams.get('q'),
+        type: searchParams.get('type') || 'tracks',
+      },
+      {
+        q: { type: 'string', required: true, minLength: 1, maxLength: 100, sanitize: true },
+        type: { type: 'string', required: false, pattern: /^(tracks|lyrics)$/ },
+      }
+    );
 
-  if (type === 'lyrics') {
-    results = await searchGenius(query);
-    // If no results from Genius, fallback to iTunes just in case
-    if (results.length === 0) {
+    const query = validated.q;
+    const type = validated.type as 'tracks' | 'lyrics';
+
+    let results: Song[] = [];
+
+    if (type === 'lyrics') {
+      results = await searchGenius(query);
+      // If no results from Genius, fallback to iTunes just in case
+      if (results.length === 0) {
+        results = await searchItunes(query);
+      }
+    } else {
       results = await searchItunes(query);
     }
-  } else {
-    results = await searchItunes(query);
-  }
 
-  return NextResponse.json(results);
+    return NextResponse.json(results);
+
+  } catch (error: any) {
+    console.error('[Search API] Error:', error);
+    
+    const isValidationError = error instanceof ValidationError;
+    const statusCode = isValidationError ? 400 : 500;
+    const errorMessage = isValidationError 
+      ? error.message 
+      : 'Internal server error';
+
+    return NextResponse.json({ 
+      error: errorMessage,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, { status: statusCode });
+  }
 }
