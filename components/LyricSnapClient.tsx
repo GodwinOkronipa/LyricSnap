@@ -427,6 +427,8 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     setQuery(`${song.title} ${song.artist}`);
     setSuggestions([]);
     setShowSuggestions(false);
+    setSelectedLines([]);   // ← clear previous song's selected lyrics
+    setLyrics(null);        // ← clear previous song's lyrics list
     analytics.trackSelectSong(song.title, song.artist);
     // Automatically fetch lyrics for a snappy experience
     handleFetchLyricsForSong(song);
@@ -486,53 +488,51 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     try {
       // ── 1. Find the DOM element to capture ──────────────────────────────
       const target = document.getElementById('screenshot-target');
-      if (!target) throw new Error('Preview element not found. Please try again.');
+      if (!target) throw new Error('Preview element not found. Select a song first.');
 
-      // ── 2. Proxy the artwork so canvas isn't CORS-tainted ───────────────
-      //    MusicPlayer sets --artwork-url as a CSS custom property on the root
-      //    div and uses it for the blurred background via Tailwind arbitrary
-      //    values. We also swap <img> srcs. Everything is restored after capture.
+      // ── 2. Proxy all external image URLs so canvas isn't CORS-tainted ───
+      //    MusicPlayer now uses inline styles for both <img> and background-image divs.
       const proxyUrl = (url: string) =>
         `/api/proxy-image?url=${encodeURIComponent(url)}`;
 
-      const artworkUrl = selectedSong.artwork;
-      const proxiedArtwork = proxyUrl(artworkUrl);
-
-      // Patch CSS custom property on the root element (blurred background)
-      const origCssProp = (target as HTMLElement).style.getPropertyValue('--artwork-url');
-      (target as HTMLElement).style.setProperty('--artwork-url', `url(${proxiedArtwork})`);
-
-      // Patch <img> srcs
+      // Patch <img> src attributes
       const images = Array.from(target.querySelectorAll<HTMLImageElement>('img'));
       const origSrcs = images.map((img) => img.src);
       images.forEach((img) => {
         if (img.src && img.src.startsWith('http')) {
-          img.src = proxyUrl(img.src);
           img.crossOrigin = 'anonymous';
+          img.src = proxyUrl(img.src);
         }
       });
 
-      // Brief wait for proxied images to load
-      await new Promise((res) => setTimeout(res, 600));
+      // Patch inline backgroundImage on divs (the blurred bg layer)
+      const bgDivs = Array.from(target.querySelectorAll<HTMLElement>('div'));
+      const origBgImages = bgDivs.map((el) => el.style.backgroundImage);
+      bgDivs.forEach((el) => {
+        const bg = el.style.backgroundImage;
+        if (bg && bg.includes('http')) {
+          const match = bg.match(/url\(["']?(https?[^"')]+)["']?\)/);
+          if (match) {
+            el.style.backgroundImage = `url(${proxyUrl(match[1])})`;
+          }
+        }
+      });
 
+      // Wait for browser to load proxied images before capture
+      await new Promise((res) => setTimeout(res, 800));
 
       // ── 3. Capture with html-to-image at 3× resolution ─────────────────
       const { toPng } = await import('html-to-image');
-      const pixelRatio = currentlyPro ? 3 : 3; // 3× for everyone (1200×1800px)
 
       const dataUrl = await toPng(target, {
-        pixelRatio,
+        pixelRatio: 3, // 390×844 → 1170×2532px (full retina quality)
         cacheBust: true,
         skipFonts: false,
       });
 
       // ── 4. Restore original values ──────────────────────────────────────
-      if (origCssProp) {
-        (target as HTMLElement).style.setProperty('--artwork-url', origCssProp);
-      } else {
-        (target as HTMLElement).style.setProperty('--artwork-url', `url(${artworkUrl})`);
-      }
       images.forEach((img, i) => { img.src = origSrcs[i]; });
+      bgDivs.forEach((el, i) => { el.style.backgroundImage = origBgImages[i]; });
 
 
       // ── 5. Trigger download ─────────────────────────────────────────────
@@ -1041,6 +1041,8 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                                 key={song.id}
                                 onClick={() => {
                                   setSelectedSong(song);
+                                  setSelectedLines([]);   // ← clear previous song's selected lyrics
+                                  setLyrics(null);        // ← clear previous song's lyrics list
                                   analytics.trackSelectSong(song.title, song.artist);
                                 }}
                                 className={`flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border ${selectedSong?.id === song.id ? 'bg-white/15 border-white/25 shadow-xl' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
@@ -1099,7 +1101,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="flex flex-col items-center w-full"
                       >
-                        <div className="relative group/player mb-6 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[400px] flex justify-center scale-90 xs:scale-100 sm:scale-100 origin-center mx-auto">
+                        <div className="relative group/player mb-6 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[390px] flex justify-center scale-75 xs:scale-[0.82] sm:scale-90 origin-top mx-auto">
 
                           <MusicPlayer 
                             title={selectedSong.title}
@@ -1182,7 +1184,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                            )}
                         </Button>
                         <p className="mt-3 text-[9px] font-black uppercase tracking-[0.2em] text-white/20 mb-8">
-                          {usageCount >= 1 ? "Limit Reached • Upgrade to Unlock" : "1 Free Shot remaining"}
+                           {usageCount >= 3 ? "Limit Reached • Upgrade to Unlock" : `${3 - usageCount} free ${3 - usageCount === 1 ? 'snap' : 'snaps'} remaining`}
                         </p>
 
 

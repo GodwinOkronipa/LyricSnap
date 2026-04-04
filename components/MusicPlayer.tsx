@@ -1,12 +1,12 @@
 import React from 'react';
-import { Play, SkipBack, SkipForward, ListMusic, Share2, Heart } from 'lucide-react';
+import { Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, Airplay, Heart, Ellipsis, ChevronDown } from 'lucide-react';
 
 interface MusicPlayerProps {
   title: string;
   artist: string;
   album: string;
   artwork: string;
-  lyrics?: string[]; // Optional lyric lines
+  lyrics?: string[];
   progress?: number; // 0-100
   duration?: string;
   currentTime?: string;
@@ -16,132 +16,491 @@ interface MusicPlayerProps {
   template?: 'classic' | 'modern';
 }
 
+/**
+ * Pixel-accurate Apple Music "Now Playing" screen recreation.
+ *
+ * Dimensions: 390 × 844 px — matches iPhone 15 logical resolution.
+ * All sizing uses fixed px values (not Tailwind responsive) so that
+ * html-to-image at 3× pixel-ratio produces a crisp 1170×2532px export.
+ */
 export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   title,
   artist,
   album,
   artwork,
   lyrics = [],
-  progress = 42,
-  duration = "3:45",
-  currentTime = "1:35",
+  progress = 32,
+  duration = '3:45',
+  currentTime = '1:12',
   watermark = false,
-  blurAmount = 80,
-  vignette = 40,
+  blurAmount = 60,
+  vignette = 55,
   template = 'classic',
 }) => {
   const isLyricMode = lyrics.length > 0;
 
-  return (
-    <div 
-      className={`relative w-[400px] h-[600px] overflow-hidden rounded-[40px] shadow-2xl bg-black flex flex-col items-center p-6 md:p-12 text-white selection:bg-pink-500/30 font-sans`}
-      style={{ 
-        '--artwork-url': `url(${artwork})`,
-        '--blur-amount': `${blurAmount}px`,
-        '--vignette-opacity': vignette / 100
-      } as React.CSSProperties}
-      id="screenshot-target"
-    >
-      {/* Background Blur */}
-      <div 
-        className={`absolute inset-0 z-0 scale-110 bg-cover bg-center transition-all duration-1000 ${isLyricMode ? 'opacity-40' : 'opacity-60'} [background-image:var(--artwork-url)] [filter:blur(var(--blur-amount))]`}
+  // ─── Shared background blur layer ───────────────────────────────────────
+  const Background = () => (
+    <>
+      {/* Deeply blurred artwork fill */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundImage: `url(${artwork})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          filter: `blur(${blurAmount}px) saturate(1.8) brightness(0.55)`,
+          transform: 'scale(1.15)',
+          zIndex: 0,
+        }}
       />
-      
-      {/* Glossy / Vignette Overlay */}
-      <div 
-        className="absolute inset-0 z-10 [background:radial-gradient(circle_at_center,rgba(255,255,255,0.1)_0%,rgba(0,0,0,var(--vignette-opacity))_100%)]"
+      {/* Dark vignette overlay for readability */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: `linear-gradient(
+            to bottom,
+            rgba(0,0,0,${vignette * 0.004}) 0%,
+            rgba(0,0,0,${vignette * 0.003}) 40%,
+            rgba(0,0,0,${vignette * 0.006}) 100%
+          )`,
+          zIndex: 1,
+        }}
       />
+    </>
+  );
 
-      {/* Watermark */}
-      {watermark && (
-        <div className="absolute bottom-6 right-8 z-50 opacity-20 pointer-events-none">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] font-heading mix-blend-difference">
-            LyricSnap.app
-          </p>
-        </div>
-      )}
+  // ─── LYRIC MODE ──────────────────────────────────────────────────────────
+  if (isLyricMode) {
+    return (
+      <div
+        id="screenshot-target"
+        style={{
+          position: 'relative',
+          width: 390,
+          height: 844,
+          overflow: 'hidden',
+          background: '#000',
+          fontFamily:
+            '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif',
+          WebkitFontSmoothing: 'antialiased',
+        }}
+      >
+        <Background />
 
-      {/* Content */}
-      <div className="relative z-20 w-full flex flex-col items-center h-full">
-        {/* Top Handle/Indicator */}
-        <div className="w-10 h-1 bg-white/20 rounded-full mb-10" />
+        {/* Content */}
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 2,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            padding: '60px 32px 48px',
+          }}
+        >
+          {/* Top: mini artwork + song info */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              marginBottom: 48,
+            }}
+          >
+            <img
+              src={artwork}
+              alt={album}
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 8,
+                objectFit: 'cover',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              }}
+            />
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <p
+                style={{
+                  color: 'rgba(255,255,255,0.95)',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  margin: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '-0.2px',
+                }}
+              >
+                {title}
+              </p>
+              <p
+                style={{
+                  color: 'rgba(255,255,255,0.5)',
+                  fontSize: 14,
+                  fontWeight: 400,
+                  margin: '2px 0 0',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {artist}
+              </p>
+            </div>
+          </div>
 
-        {isLyricMode ? (
-          /* LYRIC MODE */
-          <div className="flex-1 flex flex-col justify-center items-start w-full px-4 gap-6">
+          {/* Lyrics */}
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              gap: 20,
+            }}
+          >
             {lyrics.map((line, i) => (
-              <p 
-                key={i} 
-                className="text-4xl font-extrabold leading-tight tracking-tight drop-shadow-lg text-left font-serif"
+              <p
+                key={i}
+                style={{
+                  color: i === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.38)',
+                  fontSize: i === 0 ? 34 : 28,
+                  fontWeight: 700,
+                  lineHeight: 1.25,
+                  margin: 0,
+                  letterSpacing: '-0.5px',
+                }}
               >
                 {line}
               </p>
             ))}
-            
-            {/* Bottom Info for Lyric Mode */}
-            <div className="mt-12 flex items-center gap-4 opacity-80">
-              <img src={artwork} className="w-12 h-12 rounded-lg shadow-lg" alt={`${title} by ${artist} artwork`} />
-              <div className="overflow-hidden">
-                <p className="font-bold truncate text-sm">{title}</p>
-                <p className="text-white/60 truncate text-xs">{artist}</p>
-              </div>
-            </div>
           </div>
-        ) : (
-          /* PLAYER MODE */
-          <>
-            {/* Artwork */}
-            <div className={`transition-all duration-700 ${template === 'modern' ? 'w-48 h-48 rounded-[32px] mb-6 mt-4 shadow-2xl skew-y-1' : 'w-full aspect-square rounded-2xl mb-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)]'}`}>
-              <img src={artwork} alt={album} className="w-full h-full object-cover rounded-[inherit]" />
-            </div>
 
-            {/* Info & Metadata */}
-            <div className={`w-full flex flex-col mb-6 px-2 ${template === 'modern' ? 'items-center text-center' : 'items-start'}`}>
-              <div className={`flex flex-col gap-1 overflow-hidden w-full ${template === 'modern' ? 'items-center' : ''}`}>
-                <h1 className={`font-bold leading-tight tracking-tight font-serif ${template === 'modern' ? 'text-3xl mb-1' : 'text-2xl truncate'}`}>{title}</h1>
-                <p className={`text-white/70 tracking-tight ${template === 'modern' ? 'text-xl' : 'text-xl truncate'}`}>{artist}</p>
-              </div>
-              {template !== 'modern' && (
-                <button 
-                  aria-label="Add to favorites"
-                  className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors mt-4 self-end"
-                >
-                  <Heart className="w-6 h-6 fill-none stroke-[2px]" />
-                </button>
-              )}
-            </div>
+          {/* LyricSnap branding at bottom */}
+          {watermark && (
+            <p
+              style={{
+                color: 'rgba(255,255,255,0.25)',
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.25em',
+                textTransform: 'uppercase',
+                textAlign: 'right',
+                margin: '24px 0 0',
+              }}
+            >
+              LyricSnap.app
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-            {/* Progress Bar */}
-            <div className={`w-full px-2 mb-8 ${template === 'modern' ? 'mt-auto' : ''}`}>
-              <div className="w-full h-1.5 bg-white/20 rounded-full relative overflow-hidden group">
-                <div 
-                  className="absolute left-0 top-0 h-full bg-white rounded-full transition-all duration-500"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <div className="flex justify-between mt-3 text-xs font-semibold tracking-widest text-white/40 uppercase">
-                <span>{currentTime}</span>
-                <span>{duration}</span>
-              </div>
-            </div>
+  // ─── PLAYER MODE (Apple Music Now Playing) ───────────────────────────────
+  return (
+    <div
+      id="screenshot-target"
+      style={{
+        position: 'relative',
+        width: 390,
+        height: 844,
+        overflow: 'hidden',
+        background: '#000',
+        fontFamily:
+          '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif',
+        WebkitFontSmoothing: 'antialiased',
+      }}
+    >
+      <Background />
 
-            {/* Controls */}
-            <div className="w-full flex justify-between items-center px-4 mb-auto">
-              <SkipBack className="w-10 h-10 fill-white text-white opacity-90" />
-              <div className="p-1 bg-white rounded-full">
-                <Play className="w-12 h-12 fill-black text-black ml-1 scale-90" />
-              </div>
-              <SkipForward className="w-10 h-10 fill-white text-white opacity-90" />
-            </div>
+      {/* Safe area + content */}
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 2,
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          padding: '56px 28px 44px',
+        }}
+      >
+        {/* ── Top bar: mini player header ── */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 36,
+          }}
+        >
+          <ChevronDown
+            size={28}
+            color="rgba(255,255,255,0.9)"
+            strokeWidth={2.5}
+          />
+          <div style={{ textAlign: 'center' }}>
+            <p
+              style={{
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                margin: 0,
+              }}
+            >
+              Playing Next
+            </p>
+          </div>
+          <Ellipsis
+            size={28}
+            color="rgba(255,255,255,0.9)"
+            strokeWidth={2.5}
+          />
+        </div>
 
-            {/* Bottom Bar */}
-            <div className="w-full flex justify-between items-center px-2 mt-8 opacity-60">
-              <Share2 className="w-5 h-5" />
-              <div className="flex gap-4">
-                <ListMusic className="w-5 h-5" />
-              </div>
-            </div>
-          </>
+        {/* ── Album Artwork ── */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            marginBottom: 36,
+          }}
+        >
+          <div
+            style={{
+              width: 320,
+              height: 320,
+              borderRadius: 18,
+              overflow: 'hidden',
+              boxShadow: '0 28px 72px rgba(0,0,0,0.65), 0 8px 24px rgba(0,0,0,0.4)',
+            }}
+          >
+            <img
+              src={artwork}
+              alt={album}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                display: 'block',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* ── Song info + heart ── */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 20,
+          }}
+        >
+          <div style={{ flex: 1, overflow: 'hidden', paddingRight: 16 }}>
+            <p
+              style={{
+                color: 'rgba(255,255,255,0.95)',
+                fontSize: 22,
+                fontWeight: 700,
+                margin: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                letterSpacing: '-0.4px',
+              }}
+            >
+              {title}
+            </p>
+            <p
+              style={{
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: 18,
+                fontWeight: 500,
+                margin: '3px 0 0',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                letterSpacing: '-0.2px',
+              }}
+            >
+              {artist}
+            </p>
+          </div>
+          <Heart
+            size={26}
+            color="rgba(255,255,255,0.45)"
+            strokeWidth={2}
+            fill="none"
+          />
+        </div>
+
+        {/* ── Progress Bar ── */}
+        <div style={{ marginBottom: 8 }}>
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              height: 4,
+              background: 'rgba(255,255,255,0.25)',
+              borderRadius: 2,
+            }}
+          >
+            {/* Filled portion */}
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                height: '100%',
+                width: `${progress}%`,
+                background: 'rgba(255,255,255,0.9)',
+                borderRadius: 2,
+              }}
+            />
+            {/* Scrubber dot */}
+            <div
+              style={{
+                position: 'absolute',
+                top: '50%',
+                left: `${progress}%`,
+                transform: 'translate(-50%, -50%)',
+                width: 14,
+                height: 14,
+                borderRadius: '50%',
+                background: '#fff',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+              }}
+            />
+          </div>
+          {/* Timestamps */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginTop: 10,
+            }}
+          >
+            <span
+              style={{
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: 12,
+                fontWeight: 500,
+                letterSpacing: '0.01em',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {currentTime}
+            </span>
+            <span
+              style={{
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: 12,
+                fontWeight: 500,
+                letterSpacing: '0.01em',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              -{duration}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Playback Controls ── */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: 12,
+            marginBottom: 28,
+            paddingLeft: 4,
+            paddingRight: 4,
+          }}
+        >
+          <SkipBack
+            size={40}
+            color="rgba(255,255,255,0.9)"
+            fill="rgba(255,255,255,0.9)"
+            strokeWidth={0}
+          />
+          <div
+            style={{
+              width: 78,
+              height: 78,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.0)',
+            }}
+          >
+            <Play
+              size={62}
+              color="rgba(255,255,255,0.95)"
+              fill="rgba(255,255,255,0.95)"
+              strokeWidth={0}
+              style={{ marginLeft: 5 }}
+            />
+          </div>
+          <SkipForward
+            size={40}
+            color="rgba(255,255,255,0.9)"
+            fill="rgba(255,255,255,0.9)"
+            strokeWidth={0}
+          />
+        </div>
+
+        {/* ── Bottom controls: volume / airplay / shuffle / repeat ── */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: 'auto',
+            paddingLeft: 2,
+            paddingRight: 2,
+          }}
+        >
+          <Shuffle
+            size={22}
+            color="rgba(255,255,255,0.45)"
+            strokeWidth={2}
+          />
+          <Airplay
+            size={22}
+            color="rgba(255,255,255,0.45)"
+            strokeWidth={2}
+          />
+          <Repeat
+            size={22}
+            color="rgba(255,255,255,0.45)"
+            strokeWidth={2}
+          />
+        </div>
+
+        {/* Watermark */}
+        {watermark && (
+          <p
+            style={{
+              position: 'absolute',
+              bottom: 20,
+              right: 28,
+              color: 'rgba(255,255,255,0.2)',
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: '0.28em',
+              textTransform: 'uppercase',
+              margin: 0,
+            }}
+          >
+            LyricSnap.app
+          </p>
         )}
       </div>
     </div>
