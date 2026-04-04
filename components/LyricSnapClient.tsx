@@ -470,155 +470,134 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const handleDownload = async () => {
     if (!selectedSong) return;
 
-    // Re-check pro status right before download to ensure it's current
+    // Re-check pro status right before download
     const statusResponse = await fetch('/api/auth/status');
     const statusData = await statusResponse.json();
     const currentlyPro = statusData.is_pro;
-    
-    console.log('[Download] Current Pro Status:', currentlyPro);
-    console.log('[Download] Is Admin:', statusData.is_admin);
 
-    // BUSINESS LOGIC: 3 Free Screenshots for Guest
-    console.log('[Download Check] isPro:', currentlyPro, 'usageCount:', usageCount);
     if (!currentlyPro && usageCount >= 3) {
-      console.log('[Download Blocked] User not pro and has used free credit');
       setShowUpgradeModal(true);
       return;
     }
 
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    
-    // 1. IOS Popup Blocker Bypass: Open tab synchronously
-    let iosTab: Window | null = null;
-    if (isIOS) {
-       iosTab = window.open('', '_blank');
-       if (iosTab) {
-         iosTab.document.write(`
-           <html>
-             <body style="margin:0; background: #080808; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh;">
-               <div style="width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-               <p style="margin-top: 20px; font-weight: bold; opacity: 0.5;">Crafting your Snap...</p>
-               <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
-             </body>
-           </html>
-         `);
-       }
-    }
-
     setGenerating(true);
     analytics.trackGenerateStart(selectedSong.title, selectedSong.artist);
-    
+
     try {
-      const params = new URLSearchParams({
-        title: selectedSong.title,
-        artist: selectedSong.artist,
-        artwork: selectedSong.artwork,
-        watermark: (!isPro).toString(),
-        template: template,
-        blur: blurAmount.toString(),
-        vignette: vignette.toString(),
-        download: 'true', // Trigger native download prompt
+      // ── 1. Find the DOM element to capture ──────────────────────────────
+      const target = document.getElementById('screenshot-target');
+      if (!target) throw new Error('Preview element not found. Please try again.');
+
+      // ── 2. Proxy the artwork so canvas isn't CORS-tainted ───────────────
+      //    MusicPlayer sets --artwork-url as a CSS custom property on the root
+      //    div and uses it for the blurred background via Tailwind arbitrary
+      //    values. We also swap <img> srcs. Everything is restored after capture.
+      const proxyUrl = (url: string) =>
+        `/api/proxy-image?url=${encodeURIComponent(url)}`;
+
+      const artworkUrl = selectedSong.artwork;
+      const proxiedArtwork = proxyUrl(artworkUrl);
+
+      // Patch CSS custom property on the root element (blurred background)
+      const origCssProp = (target as HTMLElement).style.getPropertyValue('--artwork-url');
+      (target as HTMLElement).style.setProperty('--artwork-url', `url(${proxiedArtwork})`);
+
+      // Patch <img> srcs
+      const images = Array.from(target.querySelectorAll<HTMLImageElement>('img'));
+      const origSrcs = images.map((img) => img.src);
+      images.forEach((img) => {
+        if (img.src && img.src.startsWith('http')) {
+          img.src = proxyUrl(img.src);
+          img.crossOrigin = 'anonymous';
+        }
       });
 
+      // Brief wait for proxied images to load
+      await new Promise((res) => setTimeout(res, 600));
 
-      if (selectedLines.length > 0) {
-        params.set('lyrics', JSON.stringify(selectedLines));
-      }
-      
-      const apiUri = `/api/generate?${params.toString()}`;
-      console.log('[DEBUG] Calling API:', apiUri);
 
-      if (isIOS && iosTab) {
-        // For iOS, redirect the already-open tab directly to the API URL
-        // The server will respond with Content-Disposition: attachment, triggering the native popup
-        iosTab.location.href = apiUri;
+      // ── 3. Capture with html-to-image at 3× resolution ─────────────────
+      const { toPng } = await import('html-to-image');
+      const pixelRatio = currentlyPro ? 3 : 3; // 3× for everyone (1200×1800px)
+
+      const dataUrl = await toPng(target, {
+        pixelRatio,
+        cacheBust: true,
+        skipFonts: false,
+      });
+
+      // ── 4. Restore original values ──────────────────────────────────────
+      if (origCssProp) {
+        (target as HTMLElement).style.setProperty('--artwork-url', origCssProp);
       } else {
-        // 🛡️ Added timeout for slow local environments
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
-
-        try {
-          const response = await fetch(apiUri, { signal: controller.signal });
-          clearTimeout(timeoutId);
-          console.log('[DEBUG] API Response Status:', response.status);
-          
-          if (response.ok) {
-            const blob = await response.blob();
-            console.log('[DEBUG] Blob received, size:', blob.size);
-            
-            // Standard Download for Desktop/Android
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${selectedSong.title.replace(/\s+/g, '_')}_LyricSnap.png`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-          } else {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('[DEBUG] API Error Details:', errorData);
-            throw new Error(errorData.error || 'Failed to generate image');
-          }
-        } catch (fetchErr: any) {
-          if (fetchErr.name === 'AbortError') {
-             throw new Error('Generation timed out. The system is running slow, please try again.');
-          }
-          throw fetchErr;
-        }
+        (target as HTMLElement).style.setProperty('--artwork-url', `url(${artworkUrl})`);
       }
+      images.forEach((img, i) => { img.src = origSrcs[i]; });
+
+
+      // ── 5. Trigger download ─────────────────────────────────────────────
+      const filename = `${selectedSong.title.replace(/[^a-z0-9]/gi, '_')}_LyricSnap.png`;
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
 
       analytics.trackDownloadComplete(selectedSong.title, selectedSong.artist);
-      
-      const newCount = usageCount + 1;
-      
-      // Save to Supabase if logged in
-      if (user) {
-        await supabase.from('generations').insert({
-          user_id: user.id,
+
+      // ── 6. Log the generation server-side ──────────────────────────────
+      const logRes = await fetch('/api/log-generation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           title: selectedSong.title,
           artist: selectedSong.artist,
           artwork: selectedSong.artwork,
-          lyrics: selectedLines
-        });
-        
-        await supabase.from('profiles').update({ usage_count: newCount }).eq('id', user.id);
-        fetchUserProfile(user.id, user.email!); // Refetch to update UI accurately
+          lyrics: selectedLines,
+        }),
+      });
+
+      const logData = await logRes.json();
+
+      if (logRes.status === 403) {
+        // Edge case: server says limit hit (e.g. race condition)
+        setShowUpgradeModal(true);
+        return;
+      }
+
+      // ── 7. Update local state ───────────────────────────────────────────
+      const newCount = usageCount + 1;
+
+      if (user) {
+        // Server handled the DB write; just refresh local profile state
+        if (logData.usage_count !== undefined) {
+          setUsageCount(logData.usage_count);
+        } else {
+          setUsageCount(newCount);
+          fetchUserProfile(user.id, user.email!);
+        }
       } else {
-        // Guest usage
+        // Guest — manage state in localStorage
         localStorage.setItem('lyric_snap_usage', newCount.toString());
-        
-        // Store guest history in localStorage
         const guestHistory = JSON.parse(localStorage.getItem('lyric_snap_history') || '[]');
         guestHistory.unshift({
           title: selectedSong.title,
           artist: selectedSong.artist,
           artwork: selectedSong.artwork,
           lyrics: selectedLines,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         });
         localStorage.setItem('lyric_snap_history', JSON.stringify(guestHistory.slice(0, 5)));
+        setUsageCount(newCount);
       }
-      
-      setUsageCount(newCount);
     } catch (err: any) {
-      console.error('[DEBUG] handleDownload Caught Error:', err);
-      if (isIOS && iosTab) iosTab.close();
-      
-      const isLimitError = err.message?.toLowerCase().includes('limit reached');
-      
-      if (isLimitError) {
-        setShowUpgradeModal(true);
-      } else {
-        alert(`Generation failed: ${err.message || 'Please try again.'}`);
-      }
-      
+      console.error('[Download] Error:', err);
       analytics.trackError('generation_failed', err.message);
+      alert(`Export failed: ${err.message || 'Please try again.'}`);
     } finally {
       setGenerating(false);
     }
-
-
   };
   
   const copyToClipboard = () => {
