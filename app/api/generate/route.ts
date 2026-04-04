@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
     const watermark = !isPro;
 
     // FREE LIMIT CHECK (Server-side)
-    if (!isPro && usageCount >= 1 && session) {
+    if (!isPro && usageCount >= 3 && session) {
        return NextResponse.json({ error: 'Limit reached. Upgrade to Pro.' }, { status: 403 });
     }
 

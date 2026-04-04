@@ -478,9 +478,9 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     console.log('[Download] Current Pro Status:', currentlyPro);
     console.log('[Download] Is Admin:', statusData.is_admin);
 
-    // BUSINESS LOGIC: 1 Free Screenshot for Guest
+    // BUSINESS LOGIC: 3 Free Screenshots for Guest
     console.log('[Download Check] isPro:', currentlyPro, 'usageCount:', usageCount);
-    if (!currentlyPro && usageCount >= 1) {
+    if (!currentlyPro && usageCount >= 3) {
       console.log('[Download Blocked] User not pro and has used free credit');
       setShowUpgradeModal(true);
       return;
@@ -651,11 +651,15 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       {/* Upgrade Modal */}
       <AnimatePresence>
         {showUpgradeModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-3xl bg-black/80">
+          <div 
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-3xl bg-black/80"
+            onClick={() => setShowUpgradeModal(false)}
+          >
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
               className="max-w-md w-full bg-[#0a0a0a] text-white p-10 rounded-[56px] shadow-[0_50px_100px_rgba(0,0,0,0.8)] relative overflow-hidden ring-1 ring-white/10"
             >
                <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl -mr-16 -mt-16" />
