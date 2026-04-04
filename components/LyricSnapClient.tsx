@@ -39,6 +39,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [history, setHistory] = useState<any[]>([]);
   const [pendingProActivation, setPendingProActivation] = useState(false);
   const [searchMode, setSearchMode] = useState<'tracks' | 'lyrics'>('tracks');
+  const [cachedArtworkDataUri, setCachedArtworkDataUri] = useState<string | undefined>(undefined);
   
   // Load pending activation on mount
   useEffect(() => {
@@ -88,6 +89,9 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
         try {
           const data = await fetchLyrics(initialSong.title, initialSong.artist);
           setLyrics(data);
+          // Pre-cache artwork data URI
+          const cached = await fetchDataUri(initialSong.artwork);
+          setCachedArtworkDataUri(cached);
         } catch (err) {
           console.error('Failed to fetch initial lyrics:', err);
         } finally {
@@ -422,7 +426,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     }
   };
 
-  const selectSuggestion = (song: Song) => {
+  const selectSuggestion = async (song: Song) => {
     setSelectedSong(song);
     setQuery(`${song.title} ${song.artist}`);
     setSuggestions([]);
@@ -432,6 +436,26 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     analytics.trackSelectSong(song.title, song.artist);
     // Automatically fetch lyrics for a snappy experience
     handleFetchLyricsForSong(song);
+    
+    // Pre-cache artwork for reliable generation
+    try {
+      const cached = await fetchDataUri(song.artwork);
+      setCachedArtworkDataUri(cached);
+    } catch (err) {
+      console.error('Failed to pre-cache artwork:', err);
+    }
+  };
+
+  const fetchDataUri = async (src: string): Promise<string> => {
+    const res = await fetch(`/api/proxy-image?url=${encodeURIComponent(src)}`);
+    if (!res.ok) throw new Error(`Failed to proxy image: ${src}`);
+    const blob = await res.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   };
 
   const handleFetchLyricsForSong = async (song: Song) => {
@@ -490,55 +514,23 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       const target = document.getElementById('screenshot-target');
       if (!target) throw new Error('Preview element not found. Select a song first.');
 
-      // ── 2. Pre-fetch artwork as a data URI ──────────────────────────────
-      //    Data URIs are same-origin — no CORS issue, no race condition,
-      //    works on mobile Safari. This is the only reliable approach.
-      const fetchDataUri = async (src: string): Promise<string> => {
-        const res = await fetch(`/api/proxy-image?url=${encodeURIComponent(src)}`);
-        if (!res.ok) throw new Error(`Failed to proxy image: ${src}`);
-        const blob = await res.blob();
-        return new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      };
+      // ── 2. Ensure we have a data URI ────────────────────────────────────
+      let activeUri = cachedArtworkDataUri;
+      if (!activeUri) {
+         activeUri = await fetchDataUri(selectedSong.artwork);
+         setCachedArtworkDataUri(activeUri);
+      }
 
-      const artworkDataUri = await fetchDataUri(selectedSong.artwork);
-
-      // ── 3. Inject data URI into every image element and bg div ──────────
-      const images = Array.from(target.querySelectorAll<HTMLImageElement>('img'));
-      const origSrcs = images.map((img) => img.src);
-      images.forEach((img) => {
-        if (img.src && img.src.startsWith('http')) {
-          img.src = artworkDataUri;
-        }
-      });
-
-      const bgDivs = Array.from(target.querySelectorAll<HTMLElement>('div'));
-      const origBgImages = bgDivs.map((el) => el.style.backgroundImage);
-      bgDivs.forEach((el) => {
-        if (el.style.backgroundImage && el.style.backgroundImage.includes('http')) {
-          el.style.backgroundImage = `url(${artworkDataUri})`;
-        }
-      });
-
-      // ── 4. Capture at 3× — data URIs are ready instantly, no wait needed ─
+      // ── 3. Capture at 3× resolution ─────────────────────────────────────
       const { toPng } = await import('html-to-image');
 
       const dataUrl = await toPng(target, {
-        pixelRatio: 3, // 390×844 → 1170×2532px
-        cacheBust: false, // no need — we embedded data URIs
-        skipFonts: false,
+        pixelRatio: 3, 
+        cacheBust: false,
+        skipFonts: true, // Skipping fonts solves the "infinite hang" on mobile
       });
 
-      // ── 5. Restore original src / backgroundImage values ────────────────
-      images.forEach((img, i) => { img.src = origSrcs[i]; });
-      bgDivs.forEach((el, i) => { el.style.backgroundImage = origBgImages[i]; });
-
-
-      // ── 5. Trigger download ─────────────────────────────────────────────
+      // ── 4. Trigger download ─────────────────────────────────────────────
       const filename = `${selectedSong.title.replace(/[^a-z0-9]/gi, '_')}_LyricSnap.png`;
       const link = document.createElement('a');
       link.href = dataUrl;
@@ -1042,11 +1034,19 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                             {results.map((song) => (
                               <div
                                 key={song.id}
-                                onClick={() => {
+                                onClick={async () => {
                                   setSelectedSong(song);
                                   setSelectedLines([]);   // ← clear previous song's selected lyrics
                                   setLyrics(null);        // ← clear previous song's lyrics list
                                   analytics.trackSelectSong(song.title, song.artist);
+                                  
+                                  // Pre-cache artwork
+                                  try {
+                                    const cached = await fetchDataUri(song.artwork);
+                                    setCachedArtworkDataUri(cached);
+                                  } catch (err) {
+                                    console.error('Failed to pre-cache artwork:', err);
+                                  }
                                 }}
                                 className={`flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border ${selectedSong?.id === song.id ? 'bg-white/15 border-white/25 shadow-xl' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
                               >
@@ -1111,6 +1111,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                             artist={selectedSong.artist}
                             album={selectedSong.album}
                             artwork={selectedSong.artwork}
+                            cachedArtworkDataUri={cachedArtworkDataUri}
                             lyrics={selectedLines}
                             blurAmount={blurAmount}
                             vignette={vignette}
