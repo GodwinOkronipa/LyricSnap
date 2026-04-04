@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, Airplay, Heart, Ellipsis, ChevronDown } from 'lucide-react';
+import { Shuffle, SkipBack, Play, SkipForward, Repeat, Airplay, Heart, Ellipsis, ChevronDown } from 'lucide-react';
 
 interface MusicPlayerProps {
   title: string;
@@ -7,7 +7,7 @@ interface MusicPlayerProps {
   album: string;
   artwork: string;
   lyrics?: string[];
-  progress?: number; // 0-100
+  progress?: number;
   duration?: string;
   currentTime?: string;
   watermark?: boolean;
@@ -17,11 +17,9 @@ interface MusicPlayerProps {
 }
 
 /**
- * Pixel-accurate Apple Music "Now Playing" screen recreation.
- *
- * Dimensions: 390 × 844 px — matches iPhone 15 logical resolution.
- * All sizing uses fixed px values (not Tailwind responsive) so that
- * html-to-image at 3× pixel-ratio produces a crisp 1170×2532px export.
+ * Pixel-accurate Apple Music "Now Playing" recreation.
+ * 390×844px — iPhone 15 logical resolution.
+ * All styles are explicit inline — no inheritance from page CSS.
  */
 export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   title,
@@ -35,60 +33,52 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   watermark = false,
   blurAmount = 60,
   vignette = 55,
-  template = 'classic',
 }) => {
   const isLyricMode = lyrics.length > 0;
 
-  // ─── Shared background blur layer ───────────────────────────────────────
-  const Background = () => (
-    <>
-      {/* Deeply blurred artwork fill */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage: `url(${artwork})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          filter: `blur(${blurAmount}px) saturate(1.8) brightness(0.55)`,
-          transform: 'scale(1.15)',
-          zIndex: 0,
-        }}
-      />
-      {/* Dark vignette overlay for readability */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: `linear-gradient(
-            to bottom,
-            rgba(0,0,0,${vignette * 0.004}) 0%,
-            rgba(0,0,0,${vignette * 0.003}) 40%,
-            rgba(0,0,0,${vignette * 0.006}) 100%
-          )`,
-          zIndex: 1,
-        }}
-      />
-    </>
-  );
+  // Shared root styles — MUST include textAlign: left so page CSS can't bleed in
+  const rootStyle: React.CSSProperties = {
+    position: 'relative',
+    width: 390,
+    height: 844,
+    overflow: 'hidden',
+    background: '#000',
+    fontFamily: '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif',
+    WebkitFontSmoothing: 'antialiased',
+    textAlign: 'left',   // ← explicit: prevents page-level centering from bleeding in
+    color: '#fff',
+    boxSizing: 'border-box',
+  };
+
+  // Blurred background — inlined directly (not a sub-component) so html-to-image
+  // captures it in the same render pass
+  const bgBlur: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    backgroundImage: `url(${artwork})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    filter: `blur(${blurAmount}px) saturate(2) brightness(0.5)`,
+    transform: 'scale(1.2)',   // overshoot to hide blur edges
+    zIndex: 0,
+  };
+
+  const bgVignette: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    background: `linear-gradient(to bottom,
+      rgba(0,0,0,${(vignette * 0.4) / 100}) 0%,
+      rgba(0,0,0,${(vignette * 0.3) / 100}) 40%,
+      rgba(0,0,0,${(vignette * 0.6) / 100}) 100%)`,
+    zIndex: 1,
+  };
 
   // ─── LYRIC MODE ──────────────────────────────────────────────────────────
   if (isLyricMode) {
     return (
-      <div
-        id="screenshot-target"
-        style={{
-          position: 'relative',
-          width: 390,
-          height: 844,
-          overflow: 'hidden',
-          background: '#000',
-          fontFamily:
-            '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif',
-          WebkitFontSmoothing: 'antialiased',
-        }}
-      >
-        <Background />
+      <div id="screenshot-target" style={rootStyle}>
+        <div style={bgBlur} />
+        <div style={bgVignette} />
 
         {/* Content */}
         <div
@@ -99,15 +89,16 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
             flexDirection: 'column',
             height: '100%',
             padding: '60px 32px 48px',
+            boxSizing: 'border-box',
           }}
         >
-          {/* Top: mini artwork + song info */}
+          {/* Mini header: artwork + song name */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 14,
-              marginBottom: 48,
+              marginBottom: 56,
             }}
           >
             <img
@@ -118,16 +109,19 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
                 height: 52,
                 borderRadius: 8,
                 objectFit: 'cover',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                flexShrink: 0,
+                display: 'block',
               }}
             />
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <p
                 style={{
+                  textAlign: 'left',
                   color: 'rgba(255,255,255,0.95)',
                   fontSize: 15,
                   fontWeight: 600,
                   margin: 0,
+                  lineHeight: 1.3,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -138,10 +132,12 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
               </p>
               <p
                 style={{
+                  textAlign: 'left',
                   color: 'rgba(255,255,255,0.5)',
                   fontSize: 14,
                   fontWeight: 400,
-                  margin: '2px 0 0',
+                  margin: '3px 0 0',
+                  lineHeight: 1.3,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -152,21 +148,22 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
             </div>
           </div>
 
-          {/* Lyrics */}
+          {/* Lyric lines */}
           <div
             style={{
               flex: 1,
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              gap: 20,
+              gap: 24,
             }}
           >
             {lyrics.map((line, i) => (
               <p
                 key={i}
                 style={{
-                  color: i === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.38)',
+                  textAlign: 'left',
+                  color: i === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.35)',
                   fontSize: i === 0 ? 34 : 28,
                   fontWeight: 700,
                   lineHeight: 1.25,
@@ -179,16 +176,15 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
             ))}
           </div>
 
-          {/* LyricSnap branding at bottom */}
           {watermark && (
             <p
               style={{
-                color: 'rgba(255,255,255,0.25)',
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: '0.25em',
-                textTransform: 'uppercase',
                 textAlign: 'right',
+                color: 'rgba(255,255,255,0.2)',
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: '0.28em',
+                textTransform: 'uppercase',
                 margin: '24px 0 0',
               }}
             >
@@ -200,24 +196,12 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
     );
   }
 
-  // ─── PLAYER MODE (Apple Music Now Playing) ───────────────────────────────
+  // ─── PLAYER MODE ─────────────────────────────────────────────────────────
   return (
-    <div
-      id="screenshot-target"
-      style={{
-        position: 'relative',
-        width: 390,
-        height: 844,
-        overflow: 'hidden',
-        background: '#000',
-        fontFamily:
-          '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif',
-        WebkitFontSmoothing: 'antialiased',
-      }}
-    >
-      <Background />
+    <div id="screenshot-target" style={rootStyle}>
+      <div style={bgBlur} />
+      <div style={bgVignette} />
 
-      {/* Safe area + content */}
       <div
         style={{
           position: 'relative',
@@ -226,58 +210,47 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
           flexDirection: 'column',
           height: '100%',
           padding: '56px 28px 44px',
+          boxSizing: 'border-box',
         }}
       >
-        {/* ── Top bar: mini player header ── */}
+        {/* ── Header bar ── */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: 36,
+            marginBottom: 32,
           }}
         >
-          <ChevronDown
-            size={28}
-            color="rgba(255,255,255,0.9)"
-            strokeWidth={2.5}
-          />
-          <div style={{ textAlign: 'center' }}>
-            <p
-              style={{
-                color: 'rgba(255,255,255,0.5)',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                margin: 0,
-              }}
-            >
-              Playing Next
-            </p>
-          </div>
-          <Ellipsis
-            size={28}
-            color="rgba(255,255,255,0.9)"
-            strokeWidth={2.5}
-          />
+          <ChevronDown size={28} color="rgba(255,255,255,0.85)" strokeWidth={2.5} />
+
+          <p
+            style={{
+              textAlign: 'center',
+              color: 'rgba(255,255,255,0.45)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              margin: 0,
+            }}
+          >
+            Now Playing
+          </p>
+
+          <Ellipsis size={28} color="rgba(255,255,255,0.85)" strokeWidth={2.5} />
         </div>
 
-        {/* ── Album Artwork ── */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            marginBottom: 36,
-          }}
-        >
+        {/* ── Album artwork ── */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 32 }}>
           <div
             style={{
               width: 320,
               height: 320,
               borderRadius: 18,
               overflow: 'hidden',
-              boxShadow: '0 28px 72px rgba(0,0,0,0.65), 0 8px 24px rgba(0,0,0,0.4)',
+              flexShrink: 0,
+              boxShadow: '0 32px 80px rgba(0,0,0,0.7), 0 8px 24px rgba(0,0,0,0.4)',
             }}
           >
             <img
@@ -293,22 +266,24 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
           </div>
         </div>
 
-        {/* ── Song info + heart ── */}
+        {/* ── Song title + artist + heart ── */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: 20,
+            marginBottom: 18,
           }}
         >
           <div style={{ flex: 1, overflow: 'hidden', paddingRight: 16 }}>
             <p
               style={{
+                textAlign: 'left',
                 color: 'rgba(255,255,255,0.95)',
                 fontSize: 22,
                 fontWeight: 700,
                 margin: 0,
+                lineHeight: 1.2,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -319,10 +294,12 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
             </p>
             <p
               style={{
-                color: 'rgba(255,255,255,0.5)',
+                textAlign: 'left',
+                color: 'rgba(255,255,255,0.48)',
                 fontSize: 18,
                 fontWeight: 500,
-                margin: '3px 0 0',
+                margin: '4px 0 0',
+                lineHeight: 1.2,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -332,26 +309,20 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
               {artist}
             </p>
           </div>
-          <Heart
-            size={26}
-            color="rgba(255,255,255,0.45)"
-            strokeWidth={2}
-            fill="none"
-          />
+          <Heart size={26} color="rgba(255,255,255,0.4)" strokeWidth={2} fill="none" />
         </div>
 
-        {/* ── Progress Bar ── */}
-        <div style={{ marginBottom: 8 }}>
+        {/* ── Progress bar ── */}
+        <div style={{ marginBottom: 6 }}>
           <div
             style={{
               position: 'relative',
               width: '100%',
               height: 4,
-              background: 'rgba(255,255,255,0.25)',
+              background: 'rgba(255,255,255,0.22)',
               borderRadius: 2,
             }}
           >
-            {/* Filled portion */}
             <div
               style={{
                 position: 'absolute',
@@ -374,10 +345,10 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
                 height: 14,
                 borderRadius: '50%',
                 background: '#fff',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
               }}
             />
           </div>
+
           {/* Timestamps */}
           <div
             style={{
@@ -388,10 +359,10 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
           >
             <span
               style={{
-                color: 'rgba(255,255,255,0.5)',
+                textAlign: 'left',
+                color: 'rgba(255,255,255,0.45)',
                 fontSize: 12,
                 fontWeight: 500,
-                letterSpacing: '0.01em',
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
@@ -399,10 +370,10 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
             </span>
             <span
               style={{
-                color: 'rgba(255,255,255,0.5)',
+                textAlign: 'right',
+                color: 'rgba(255,255,255,0.45)',
                 fontSize: 12,
                 fontWeight: 500,
-                letterSpacing: '0.01em',
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
@@ -411,87 +382,59 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
           </div>
         </div>
 
-        {/* ── Playback Controls ── */}
+        {/* ── Playback controls ── */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginTop: 12,
-            marginBottom: 28,
-            paddingLeft: 4,
-            paddingRight: 4,
+            marginTop: 16,
+            marginBottom: 24,
           }}
         >
           <SkipBack
-            size={40}
+            size={42}
             color="rgba(255,255,255,0.9)"
             fill="rgba(255,255,255,0.9)"
             strokeWidth={0}
           />
-          <div
-            style={{
-              width: 78,
-              height: 78,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '50%',
-              background: 'rgba(255,255,255,0.0)',
-            }}
-          >
-            <Play
-              size={62}
-              color="rgba(255,255,255,0.95)"
-              fill="rgba(255,255,255,0.95)"
-              strokeWidth={0}
-              style={{ marginLeft: 5 }}
-            />
-          </div>
+          <Play
+            size={68}
+            color="rgba(255,255,255,0.95)"
+            fill="rgba(255,255,255,0.95)"
+            strokeWidth={0}
+            style={{ marginLeft: 4 }}
+          />
           <SkipForward
-            size={40}
+            size={42}
             color="rgba(255,255,255,0.9)"
             fill="rgba(255,255,255,0.9)"
             strokeWidth={0}
           />
         </div>
 
-        {/* ── Bottom controls: volume / airplay / shuffle / repeat ── */}
+        {/* ── Bottom bar: shuffle / airplay / repeat ── */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             marginTop: 'auto',
-            paddingLeft: 2,
-            paddingRight: 2,
           }}
         >
-          <Shuffle
-            size={22}
-            color="rgba(255,255,255,0.45)"
-            strokeWidth={2}
-          />
-          <Airplay
-            size={22}
-            color="rgba(255,255,255,0.45)"
-            strokeWidth={2}
-          />
-          <Repeat
-            size={22}
-            color="rgba(255,255,255,0.45)"
-            strokeWidth={2}
-          />
+          <Shuffle size={22} color="rgba(255,255,255,0.4)" strokeWidth={2} />
+          <Airplay size={22} color="rgba(255,255,255,0.4)" strokeWidth={2} />
+          <Repeat size={22} color="rgba(255,255,255,0.4)" strokeWidth={2} />
         </div>
 
-        {/* Watermark */}
         {watermark && (
           <p
             style={{
               position: 'absolute',
               bottom: 20,
               right: 28,
-              color: 'rgba(255,255,255,0.2)',
+              textAlign: 'right',
+              color: 'rgba(255,255,255,0.18)',
               fontSize: 9,
               fontWeight: 700,
               letterSpacing: '0.28em',

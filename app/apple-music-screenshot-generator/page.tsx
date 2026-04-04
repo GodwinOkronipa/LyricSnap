@@ -11,12 +11,15 @@ export const metadata: Metadata = {
     'music post generator',
     'now playing screenshot'
   ],
-  openGraph: {
-    title: 'Apple Music Screenshot Generator',
-    description: 'Transform any song into a beautiful Apple Music style post.',
-    type: 'website',
-  }
-};
+    openGraph: {
+      title: 'Apple Music Screenshot Generator',
+      description: 'Transform any song into a beautiful Apple Music style post.',
+      type: 'website',
+    },
+    verification: {
+      google: "6ZkyKueVsn75KfDNSeYok1fiBzDQWFHR2fPi-QLy-rs",
+    },
+  };
 
 export default function AppleMusicSEO() {
   return <Home />;

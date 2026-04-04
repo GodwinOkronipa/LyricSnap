@@ -490,47 +490,50 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       const target = document.getElementById('screenshot-target');
       if (!target) throw new Error('Preview element not found. Select a song first.');
 
-      // ── 2. Proxy all external image URLs so canvas isn't CORS-tainted ───
-      //    MusicPlayer now uses inline styles for both <img> and background-image divs.
-      const proxyUrl = (url: string) =>
-        `/api/proxy-image?url=${encodeURIComponent(url)}`;
+      // ── 2. Pre-fetch artwork as a data URI ──────────────────────────────
+      //    Data URIs are same-origin — no CORS issue, no race condition,
+      //    works on mobile Safari. This is the only reliable approach.
+      const fetchDataUri = async (src: string): Promise<string> => {
+        const res = await fetch(`/api/proxy-image?url=${encodeURIComponent(src)}`);
+        if (!res.ok) throw new Error(`Failed to proxy image: ${src}`);
+        const blob = await res.blob();
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      };
 
-      // Patch <img> src attributes
+      const artworkDataUri = await fetchDataUri(selectedSong.artwork);
+
+      // ── 3. Inject data URI into every image element and bg div ──────────
       const images = Array.from(target.querySelectorAll<HTMLImageElement>('img'));
       const origSrcs = images.map((img) => img.src);
       images.forEach((img) => {
         if (img.src && img.src.startsWith('http')) {
-          img.crossOrigin = 'anonymous';
-          img.src = proxyUrl(img.src);
+          img.src = artworkDataUri;
         }
       });
 
-      // Patch inline backgroundImage on divs (the blurred bg layer)
       const bgDivs = Array.from(target.querySelectorAll<HTMLElement>('div'));
       const origBgImages = bgDivs.map((el) => el.style.backgroundImage);
       bgDivs.forEach((el) => {
-        const bg = el.style.backgroundImage;
-        if (bg && bg.includes('http')) {
-          const match = bg.match(/url\(["']?(https?[^"')]+)["']?\)/);
-          if (match) {
-            el.style.backgroundImage = `url(${proxyUrl(match[1])})`;
-          }
+        if (el.style.backgroundImage && el.style.backgroundImage.includes('http')) {
+          el.style.backgroundImage = `url(${artworkDataUri})`;
         }
       });
 
-      // Wait for browser to load proxied images before capture
-      await new Promise((res) => setTimeout(res, 800));
-
-      // ── 3. Capture with html-to-image at 3× resolution ─────────────────
+      // ── 4. Capture at 3× — data URIs are ready instantly, no wait needed ─
       const { toPng } = await import('html-to-image');
 
       const dataUrl = await toPng(target, {
-        pixelRatio: 3, // 390×844 → 1170×2532px (full retina quality)
-        cacheBust: true,
+        pixelRatio: 3, // 390×844 → 1170×2532px
+        cacheBust: false, // no need — we embedded data URIs
         skipFonts: false,
       });
 
-      // ── 4. Restore original values ──────────────────────────────────────
+      // ── 5. Restore original src / backgroundImage values ────────────────
       images.forEach((img, i) => { img.src = origSrcs[i]; });
       bgDivs.forEach((el, i) => { el.style.backgroundImage = origBgImages[i]; });
 

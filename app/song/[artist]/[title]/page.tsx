@@ -42,7 +42,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         title: pageTitle,
         description: pageDesc,
         images: song ? [{ url: song.artwork }] : ['/og-image.png'],
-      }
+      },
+      verification: {
+        google: "6ZkyKueVsn75KfDNSeYok1fiBzDQWFHR2fPi-QLy-rs",
+      },
     };
   } catch (e) {
     return { title: 'LyricSnap' };
