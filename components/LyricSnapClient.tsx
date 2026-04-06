@@ -40,6 +40,23 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [pendingProActivation, setPendingProActivation] = useState(false);
   const [searchMode, setSearchMode] = useState<'tracks' | 'lyrics'>('tracks');
   const [cachedArtworkDataUri, setCachedArtworkDataUri] = useState<string | undefined>(undefined);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileScale, setMobileScale] = useState(1);
+  const mobilePlayerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 1024);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Recalculate scale whenever mobile view activates or song changes
+  useEffect(() => {
+    if (!isMobile || !mobilePlayerRef.current) return;
+    const w = mobilePlayerRef.current.offsetWidth;
+    if (w > 0) setMobileScale(w / 390);
+  }, [isMobile, selectedSong]);
   
   // Load pending activation on mount
   useEffect(() => {
@@ -71,7 +88,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [waitlistJoined, setWaitlistJoined] = useState(false);
 
   const scrollToPro = () => {
-    document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('studio-pro')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const previewRef = useRef<HTMLDivElement>(null);
@@ -732,21 +749,43 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       />
 
       {/* Navigation */}
-      <nav className="relative z-50 flex items-center justify-between px-8 py-6 max-w-7xl mx-auto border-b border-white/10 backdrop-blur-md">
-        <div className="flex items-center gap-2 group cursor-pointer">
-          <div className="p-2 bg-gradient-to-tr from-pink-500 to-orange-400 rounded-xl group-hover:rotate-12 transition-transform shadow-[0_0_20px_rgba(236,72,153,0.3)]">
-            <Music className="w-5 h-5 text-white" />
+      <nav className="sticky top-0 z-50 w-full bg-black/60 backdrop-blur-xl border-b border-white/5">
+        <div className="flex items-center justify-between px-8 py-5 max-w-7xl mx-auto">
+          <div className="flex items-center gap-2 group cursor-pointer">
+            <div className="p-2 bg-gradient-to-tr from-pink-500 to-orange-400 rounded-xl group-hover:rotate-12 transition-transform shadow-[0_0_20px_rgba(236,72,153,0.3)]">
+              <Music className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-2xl font-bold tracking-tighter">LyricSnap</span>
           </div>
-          <span className="text-2xl font-bold tracking-tighter">LyricSnap</span>
-        </div>
-        <div className="hidden md:flex items-center gap-8 text-sm font-medium text-white/60">
-          <a href="#how-it-works" className="hover:text-white transition-colors">How it Works</a>
-          <a href="#features" className="hover:text-white transition-colors">Features</a>
-          <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
-          
-          {user ? (
-            <div className="flex items-center gap-4">
-              <span className="text-white/40 text-xs font-bold truncate max-w-[150px]">{user.email}</span>
+          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-white/60">
+            <a href="#how-it-works" className="hover:text-white transition-colors">How it Works</a>
+            <a href="#features" className="hover:text-white transition-colors">Features</a>
+            <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
+            
+            {user ? (
+              <div className="flex items-center gap-4">
+                <span className="text-white/40 text-xs font-bold truncate max-w-[150px]">{user.email}</span>
+                <button 
+                  onClick={handleSignOut}
+                  className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
+                  aria-label="Sign Out"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <Button 
+                onClick={() => setShowAuthModal(true)}
+                variant="outline" 
+                className="border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-full px-6 transition-all active:scale-95 backdrop-blur-sm"
+              >
+                Sign In
+              </Button>
+            )}
+          </div>
+
+          <div className="md:hidden flex items-center gap-2">
+            {user ? (
               <button 
                 onClick={handleSignOut}
                 className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
@@ -754,36 +793,15 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
               >
                 <LogOut className="w-5 h-5" />
               </button>
-            </div>
-          ) : (
-            <Button 
-              onClick={() => setShowAuthModal(true)}
-              variant="outline" 
-              className="border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-full px-6 transition-all active:scale-95 backdrop-blur-sm"
-            >
-              Sign In
-            </Button>
-          )}
-        </div>
-
-        {/* Mobile Sign In/Out Button (Option 1) */}
-        <div className="md:hidden flex items-center gap-2">
-          {user ? (
-            <button 
-              onClick={handleSignOut}
-              className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
-              aria-label="Sign Out"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          ) : (
-            <button 
-              onClick={() => setShowAuthModal(true)}
-              className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full hover:bg-indigo-700 transition-colors active:scale-95"
-            >
-              Sign In
-            </button>
-          )}
+            ) : (
+              <button 
+                onClick={() => setShowAuthModal(true)}
+                className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full hover:bg-indigo-700 transition-colors active:scale-95"
+              >
+                Sign In
+              </button>
+            )}
+          </div>
         </div>
       </nav>
 
@@ -1104,30 +1122,32 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="flex flex-col items-center w-full"
                       >
-                        <div className="relative group/player mb-6 transform-gpu hover:rotate-1 transition-transform duration-700 w-full max-w-[390px] flex justify-center scale-75 xs:scale-[0.82] sm:scale-90 origin-top mx-auto">
-
-                          <MusicPlayer 
-                            title={selectedSong.title}
-                            artist={selectedSong.artist}
-                            album={selectedSong.album}
-                            artwork={selectedSong.artwork}
-                            cachedArtworkDataUri={cachedArtworkDataUri}
-                            lyrics={selectedLines}
-                            blurAmount={blurAmount}
-                            vignette={vignette}
-                            template={template}
-                            watermark={!isPro}
-                          />
-                          {selectedLines.length > 0 && (
-                            <button 
-                              onClick={() => setSelectedLines([])}
-                              className="absolute -top-3 -right-3 p-2 bg-white text-black rounded-full shadow-2xl opacity-0 group-hover/player:opacity-100 transition-opacity z-50 hover:scale-110 active:scale-95"
-                              aria-label="Clear all selected lyrics"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                        {/* Desktop preview: shown in right column with subtle hover tilt */}
+                        {!isMobile && (
+                          <div className="relative group/player mb-6 transform-gpu hover:rotate-1 transition-transform duration-700 w-full flex justify-center origin-top mx-auto">
+                            <MusicPlayer 
+                              title={selectedSong.title}
+                              artist={selectedSong.artist}
+                              album={selectedSong.album}
+                              artwork={selectedSong.artwork}
+                              cachedArtworkDataUri={cachedArtworkDataUri}
+                              lyrics={selectedLines}
+                              blurAmount={blurAmount}
+                              vignette={vignette}
+                              template={template}
+                              watermark={!isPro}
+                            />
+                            {selectedLines.length > 0 && (
+                              <button 
+                                onClick={() => setSelectedLines([])}
+                                className="absolute -top-3 -right-3 p-2 bg-white text-black rounded-full shadow-2xl opacity-0 group-hover/player:opacity-100 transition-opacity z-50 hover:scale-110 active:scale-95"
+                                aria-label="Clear all selected lyrics"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        )}
 
                         {/* Lyrics Controls */}
                         <div className="w-full flex flex-col gap-4 mb-8">
@@ -1167,29 +1187,33 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                         </div>
 
 
-                        <Button 
-                          onClick={handleDownload}
-                          disabled={generating}
-                          className="w-full h-16 bg-gradient-to-br from-[#ff3366] via-[#ff5e3a] to-[#ff9500] text-white hover:brightness-110 rounded-[24px] transition-all flex flex-col items-center justify-center shadow-[0_20px_40px_-10px_rgba(255,51,102,0.4)] active:scale-[0.98] disabled:opacity-50 group/download mt-4 border border-white/30 relative overflow-hidden"
-                        >
-                           <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover/download:opacity-100 transition-opacity" />
-                           <div className="flex items-center gap-2.5 relative z-10 px-4 w-full justify-center">
-                             <span className="text-base xs:text-lg font-black tracking-tight truncate">
-                               {generating ? "Crafting..." : "Generate & Download"}
-                             </span>
-                             {!generating && (
-                               <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center group-hover/download:bg-white group-hover/download:text-pink-500 transition-all border border-white/30 shadow-lg flex-shrink-0">
-                                 <Download className="w-4 h-4 group-hover/download:translate-y-0.5 transition-transform" />
+                        {!isMobile && (
+                          <>
+                            <Button 
+                              onClick={handleDownload}
+                              disabled={generating}
+                              className="w-full h-16 bg-gradient-to-br from-[#ff3366] via-[#ff5e3a] to-[#ff9500] text-white hover:brightness-110 rounded-[24px] transition-all flex flex-col items-center justify-center shadow-[0_20px_40px_-10px_rgba(255,51,102,0.4)] active:scale-[0.98] disabled:opacity-50 group/download mt-4 border border-white/30 relative overflow-hidden"
+                            >
+                               <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover/download:opacity-100 transition-opacity" />
+                               <div className="flex items-center gap-2.5 relative z-10 px-4 w-full justify-center">
+                                 <span className="text-base xs:text-lg font-black tracking-tight truncate">
+                                   {generating ? "Crafting..." : "Generate & Download"}
+                                 </span>
+                                 {!generating && (
+                                   <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center group-hover/download:bg-white group-hover/download:text-pink-500 transition-all border border-white/30 shadow-lg flex-shrink-0">
+                                     <Download className="w-4 h-4 group-hover/download:translate-y-0.5 transition-transform" />
+                                   </div>
+                                 )}
                                </div>
-                             )}
-                           </div>
-                           {!generating && (
-                             <span className="text-[9px] font-black uppercase tracking-[0.25em] opacity-60 mt-0.5 relative z-10">Studio Export</span>
-                           )}
-                        </Button>
-                        <p className="mt-3 text-[9px] font-black uppercase tracking-[0.2em] text-white/20 mb-8">
-                           {usageCount >= 3 ? "Limit Reached • Upgrade to Unlock" : `${3 - usageCount} free ${3 - usageCount === 1 ? 'snap' : 'snaps'} remaining`}
-                        </p>
+                               {!generating && (
+                                 <span className="text-[9px] font-black uppercase tracking-[0.25em] opacity-60 mt-0.5 relative z-10">Studio Export</span>
+                               )}
+                            </Button>
+                            <p className="mt-3 text-[9px] font-black uppercase tracking-[0.2em] text-white/20 mb-8">
+                               {usageCount >= 3 ? "Limit Reached • Upgrade to Unlock" : `${3 - usageCount} free ${3 - usageCount === 1 ? 'snap' : 'snaps'} remaining`}
+                            </p>
+                          </>
+                        )}
 
 
 
@@ -1306,6 +1330,43 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                 </div>
               </div>
             </div>
+
+            {/* Mobile render — outside tool container, full viewport width, no clipping */}
+            {isMobile && selectedSong && (
+              <div className="mt-6 lg:hidden" style={{ width: '100vw', marginLeft: 'calc(-50vw + 50%)' }}>
+                <div
+                  ref={mobilePlayerRef}
+                  className="w-full overflow-hidden"
+                  style={{ height: 620 * mobileScale }}
+                >
+                  <div style={{
+                    transform: `scale(${mobileScale})`,
+                    transformOrigin: 'top left',
+                    width: 390,
+                  }}>
+                    <MusicPlayer
+                      title={selectedSong.title}
+                      artist={selectedSong.artist}
+                      album={selectedSong.album}
+                      artwork={selectedSong.artwork}
+                      cachedArtworkDataUri={cachedArtworkDataUri}
+                      lyrics={selectedLines}
+                      blurAmount={blurAmount}
+                      vignette={vignette}
+                      template={template}
+                      watermark={!isPro}
+                      compactHeight={620}
+                    />
+                  </div>
+                </div>
+                <p className="mt-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">
+                  📱 Screenshot to save your Snap
+                </p>
+                <p className="mt-1 text-center text-[9px] font-black uppercase tracking-[0.2em] text-white/15">
+                  {usageCount >= 3 ? "Limit Reached • Upgrade to Unlock" : `${3 - usageCount} free ${3 - usageCount === 1 ? 'snap' : 'snaps'} remaining`}
+                </p>
+              </div>
+            )}
           </motion.div>
         </section>
 
@@ -1418,7 +1479,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
               </div>
 
               {/* Studio Pro */}
-              <div className="p-12 rounded-[56px] bg-white text-black text-left space-y-8 relative overflow-hidden shadow-[0_30px_100px_rgba(255,255,255,0.1)] group/pro border-2 border-pink-500/20">
+              <div id="studio-pro" className="p-12 rounded-[56px] bg-white text-black text-left space-y-8 relative overflow-hidden shadow-[0_30px_100px_rgba(255,255,255,0.1)] group/pro border-2 border-pink-500/20">
                 <div className="absolute top-8 right-8 bg-pink-500 text-white text-[10px] font-black uppercase tracking-widest py-1.5 px-4 rounded-full animate-pulse">FLASH SALE</div>
                 <div>
                   <h3 className="text-2xl font-bold">Studio Pro</h3>

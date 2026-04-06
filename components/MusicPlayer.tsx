@@ -6,7 +6,7 @@ interface MusicPlayerProps {
   artist: string;
   album: string;
   artwork: string;
-  cachedArtworkDataUri?: string; // ← New prop for pre-fetched base64
+  cachedArtworkDataUri?: string;
   lyrics?: string[];
   progress?: number;
   duration?: string;
@@ -15,6 +15,7 @@ interface MusicPlayerProps {
   blurAmount?: number;
   vignette?: number;
   template?: 'classic' | 'modern';
+  compactHeight?: number; // ← override height for compact mobile view
 }
 
 /**
@@ -35,15 +36,17 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   watermark = false,
   blurAmount = 60,
   vignette = 55,
+  compactHeight,
 }) => {
   const isLyricMode = lyrics.length > 0;
   const activeArtwork = cachedArtworkDataUri || artwork;
+  const cardHeight = compactHeight ?? 844;
 
   // Shared root styles — MUST include textAlign: left !important
   const rootStyle: React.CSSProperties = {
     position: 'relative',
     width: '390px',
-    height: '844px',
+    height: `${cardHeight}px`,
     overflow: 'hidden',
     background: '#000',
     fontFamily: '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif',
