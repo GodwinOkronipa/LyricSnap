@@ -451,14 +451,19 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     const res = await fetch(`/api/proxy-image?url=${encodeURIComponent(src)}`);
     if (!res.ok) throw new Error(`Failed to proxy image: ${src}`);
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const rawDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
 
     // 2. Load into Image
     const img = new Image();
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
-      img.src = url;
+      img.src = rawDataUrl;
     });
 
     // 3. Thumbnail (Quality JPEG for iOS SVG size limits)
@@ -478,7 +483,6 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     bCtx.drawImage(img, -20, -20, 140, 140);
     const blurredUri = bCanvas.toDataURL('image/jpeg', 0.6);
 
-    URL.revokeObjectURL(url);
     return { thumbnailUri, blurredUri };
   };
 
