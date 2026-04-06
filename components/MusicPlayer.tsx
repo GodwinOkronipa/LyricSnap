@@ -6,7 +6,7 @@ interface MusicPlayerProps {
   artist: string;
   album: string;
   artwork: string;
-  optimizedAssets?: { thumbnailUri: string, blurredUri: string } | null;
+  cachedArtworkDataUri?: string; // ← New prop for pre-fetched base64
   lyrics?: string[];
   progress?: number;
   duration?: string;
@@ -27,7 +27,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   artist,
   album,
   artwork,
-  optimizedAssets,
+  cachedArtworkDataUri,
   lyrics = [],
   progress = 32,
   duration = '3:45',
@@ -37,8 +37,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   vignette = 55,
 }) => {
   const isLyricMode = lyrics.length > 0;
-  const activeThumbnail = optimizedAssets?.thumbnailUri || artwork;
-  const activeBackground = optimizedAssets?.blurredUri || artwork;
+  const activeArtwork = cachedArtworkDataUri || artwork;
 
   // Shared root styles — MUST include textAlign: left !important
   const rootStyle: React.CSSProperties = {
@@ -68,12 +67,11 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   const bgBlurStyle: React.CSSProperties = {
     position: 'absolute',
     inset: 0,
-    backgroundImage: `url(${activeBackground})`,
+    backgroundImage: `url(${activeArtwork})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
-    // Only apply CSS filter if we don't have the pre-blurred assets
-    filter: optimizedAssets ? 'none' : `blur(${blurAmount}px) saturate(2) brightness(0.6)`,
-    transform: 'scale(1.1)', // slight overscale to hide edges
+    filter: `blur(${blurAmount}px) saturate(2) brightness(0.6)`,
+    transform: 'scale(1.25)',
     zIndex: 0,
     pointerEvents: 'none',
   };
@@ -113,7 +111,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
         /* ─── LYRIC MODE ─── */
         <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', height: '100%', padding: '64px 32px 48px', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 54 }}>
-            <img src={activeThumbnail} alt="" style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', display: 'block', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }} />
+            <img src={activeArtwork} alt="" style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', display: 'block', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }} />
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <p style={{ ...commonText, fontSize: 16, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</p>
               <p style={{ ...commonText, fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.5)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{artist}</p>
@@ -136,7 +134,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 42 }}>
             <div style={{ width: 326, height: 326, borderRadius: 16, overflow: 'hidden', boxShadow: '0 30px 60px rgba(0,0,0,0.6)' }}>
-              <img src={activeThumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <img src={activeArtwork} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>

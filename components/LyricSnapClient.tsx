@@ -39,7 +39,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [history, setHistory] = useState<any[]>([]);
   const [pendingProActivation, setPendingProActivation] = useState(false);
   const [searchMode, setSearchMode] = useState<'tracks' | 'lyrics'>('tracks');
-  const [optimizedAssets, setOptimizedAssets] = useState<{ thumbnailUri: string, blurredUri: string } | null>(null);
+  const [cachedArtworkDataUri, setCachedArtworkDataUri] = useState<string | undefined>(undefined);
   
   // Load pending activation on mount
   useEffect(() => {
@@ -89,9 +89,9 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
         try {
           const data = await fetchLyrics(initialSong.title, initialSong.artist);
           setLyrics(data);
-          // Pre-cache optimized artwork
-          const optimized = await generateOptimizedAssets(initialSong.artwork, blurAmount);
-          setOptimizedAssets(optimized);
+          // Pre-cache artwork data URI
+          const cached = await fetchDataUri(initialSong.artwork);
+          setCachedArtworkDataUri(cached);
         } catch (err) {
           console.error('Failed to fetch initial lyrics:', err);
         } finally {
@@ -439,51 +439,23 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     
     // Pre-cache artwork for reliable generation
     try {
-      const optimized = await generateOptimizedAssets(song.artwork, blurAmount);
-      setOptimizedAssets(optimized);
+      const cached = await fetchDataUri(song.artwork);
+      setCachedArtworkDataUri(cached);
     } catch (err) {
       console.error('Failed to pre-cache artwork:', err);
     }
   };
 
-  const generateOptimizedAssets = async (src: string, blurVal: number): Promise<{ thumbnailUri: string, blurredUri: string }> => {
-    // 1. Fetch via proxy
+  const fetchDataUri = async (src: string): Promise<string> => {
     const res = await fetch(`/api/proxy-image?url=${encodeURIComponent(src)}`);
     if (!res.ok) throw new Error(`Failed to proxy image: ${src}`);
     const blob = await res.blob();
-    const rawDataUrl = await new Promise<string>((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
-
-    // 2. Load into Image
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-      img.src = rawDataUrl;
-    });
-
-    // 3. Thumbnail (Quality JPEG for iOS SVG size limits)
-    const tCanvas = document.createElement('canvas');
-    tCanvas.width = 300;
-    tCanvas.height = 300;
-    const tCtx = tCanvas.getContext('2d')!;
-    tCtx.drawImage(img, 0, 0, 300, 300);
-    const thumbnailUri = tCanvas.toDataURL('image/jpeg', 0.85);
-
-    // 4. Blurred Background (Tiny JPEG for zero-GPU-crash)
-    const bCanvas = document.createElement('canvas');
-    bCanvas.width = 100;
-    bCanvas.height = 100;
-    const bCtx = bCanvas.getContext('2d')!;
-    bCtx.filter = `saturate(200%) brightness(60%) blur(${Math.max(1, blurVal / 5)}px)`;
-    bCtx.drawImage(img, -20, -20, 140, 140);
-    const blurredUri = bCanvas.toDataURL('image/jpeg', 0.6);
-
-    return { thumbnailUri, blurredUri };
   };
 
   const handleFetchLyricsForSong = async (song: Song) => {
@@ -542,14 +514,12 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       const target = document.getElementById('screenshot-target');
       if (!target) throw new Error('Preview element not found. Select a song first.');
 
-      // ── 2. Ensure we have data URIs ────────────────────────────────────
-      if (!optimizedAssets) {
-         const activeAssets = await generateOptimizedAssets(selectedSong.artwork, blurAmount);
-         setOptimizedAssets(activeAssets);
+      // ── 2. Ensure we have a data URI ────────────────────────────────────
+      let activeUri = cachedArtworkDataUri;
+      if (!activeUri) {
+         activeUri = await fetchDataUri(selectedSong.artwork);
+         setCachedArtworkDataUri(activeUri);
       }
-
-      // Small delay just to let React mount the new images in the DOM
-      await new Promise(resolve => setTimeout(resolve, 50));
 
       // ── 3. Capture at 3× resolution ─────────────────────────────────────
       const { toPng } = await import('html-to-image');
@@ -1072,8 +1042,8 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                                   
                                   // Pre-cache artwork
                                   try {
-                                    const optimized = await generateOptimizedAssets(song.artwork, blurAmount);
-                                    setOptimizedAssets(optimized);
+                                    const cached = await fetchDataUri(song.artwork);
+                                    setCachedArtworkDataUri(cached);
                                   } catch (err) {
                                     console.error('Failed to pre-cache artwork:', err);
                                   }
@@ -1141,7 +1111,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                             artist={selectedSong.artist}
                             album={selectedSong.album}
                             artwork={selectedSong.artwork}
-                            optimizedAssets={optimizedAssets}
+                            cachedArtworkDataUri={cachedArtworkDataUri}
                             lyrics={selectedLines}
                             blurAmount={blurAmount}
                             vignette={vignette}
