@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateMusicPlayerImage } from '@/lib/native-screenshot';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { verifyToken } from '@/lib/token';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { validateInput } from '@/lib/validation';
 
+/**
+ * Natively generates and returns the music player image.
+ * Uses Satori/Sharp for extremely high performance screenshotting.
+ */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   
@@ -51,34 +55,22 @@ export async function GET(req: NextRequest) {
     const vignette = Math.min(Math.max(parseInt(validated.vignette), 0), 100); // Clamp 0-100
     const template = validated.template as 'classic' | 'modern';
 
-    // 🛡️ SECURITY: Server-side Auth & Limit Check
-    const supabaseServer = await createSupabaseServerClient();
-    const sessionData = await supabaseServer.auth.getSession();
-    const session = sessionData.data.session;
-    
+    // 🛡️ SECURITY: Stateless Pro Token Check
+    const token = searchParams.get('token');
     let isPro = false;
-    let usageCount = 0;
 
-    if (session) {
-      const { data: profile } = await supabaseServer
-        .from('profiles')
-        .select('is_pro, usage_count')
-        .eq('id', session.user.id)
-        .single();
-      
-      if (profile) {
-        isPro = profile.is_pro;
-        usageCount = profile.usage_count;
+    if (token) {
+      const decoded = verifyToken(token);
+      if (decoded) {
+        isPro = true;
+        console.log(`[API] Valid Pro token verified for ${decoded.email}`);
+      } else {
+        console.warn('[API] Invalid Pro token provided');
       }
     }
 
     // FORCE WATERMARK if not Pro
     const watermark = !isPro;
-
-    // FREE LIMIT CHECK (Server-side)
-    if (!isPro && usageCount >= 3 && session) {
-       return NextResponse.json({ error: 'Limit reached. Upgrade to Pro.' }, { status: 403 });
-    }
 
     console.log('[API] Generating image for:', title);
     console.log('[API] Using native image generation (no browser required)');
@@ -113,24 +105,6 @@ export async function GET(req: NextRequest) {
     });
 
     console.log('[API] Image generated successfully (native)');
-
-    // Log the generation to Supabase
-    try {
-      if (session) {
-        const newCount = usageCount + 1;
-        await supabaseServer.from('generations').insert({
-          user_id: session.user.id,
-          title: title,
-          artist: artist,
-          artwork: artwork,
-          lyrics: lyrics ? JSON.parse(decodeURIComponent(lyrics)) : []
-        });
-        await supabaseServer.from('profiles').update({ usage_count: newCount }).eq('id', session.user.id);
-        console.log('[API] Generation logged to database');
-      }
-    } catch (dbError) {
-      console.error('[API] Failed to log generation:', dbError);
-    }
 
     const headers = new Headers({
       'Content-Type': 'image/png',

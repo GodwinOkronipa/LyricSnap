@@ -1,30 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { signToken } from '@/lib/token';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const EXPECTED_AMOUNT = Math.round((0.49 * Number(process.env.NEXT_PUBLIC_GHS_CONVERSION_RATE || 15) * 100));
 
 /**
- * Verifies Paystack payment reference and activates Pro status
- * CRITICAL: This must be called AFTER client receives success from Paystack
- * Never trust client-side payment success signals
+ * Verifies Paystack payment reference and returns signed token for stateless Pro status
  */
 export async function POST(req: NextRequest) {
   try {
-    // Verify request comes from authenticated user
-    const supabaseServer = await createSupabaseServerClient();
-    const sessionData = await supabaseServer.auth.getSession();
-    const session = sessionData.data.session;
-    
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const { reference, email } = await req.json();
 
-    const { reference } = await req.json();
-
-    // 🔒 Validate reference format (Paystack generates UUID-like refs)
+    // 🔒 Validate input fields
     if (!reference || typeof reference !== 'string' || reference.length < 5) {
       return NextResponse.json({ error: 'Invalid reference format' }, { status: 400 });
+    }
+
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
     }
 
     if (!PAYSTACK_SECRET_KEY) {
@@ -33,7 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 🔒 Verify with Paystack backend (server-to-server)
-    console.log(`[PAYMENT] Verifying reference: ${reference} for user: ${session.user.id}`);
+    console.log(`[PAYMENT] Verifying reference: ${reference} for email: ${email}`);
     
     const paystackResponse = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
       method: 'GET',
@@ -65,75 +58,21 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Verify customer email matches session email
-    if (transaction.customer.email !== session.user.email) {
-      console.warn(`[PAYMENT] Email mismatch: ${transaction.customer.email} vs ${session.user.email}`);
+    if (transaction.customer.email.toLowerCase() !== email.toLowerCase()) {
+      console.warn(`[PAYMENT] Email mismatch: ${transaction.customer.email} vs ${email}`);
       return NextResponse.json({ error: 'Payment email mismatch' }, { status: 400 });
     }
 
-    // 4. Check if this reference was already used (prevent replay attacks)
-    const { data: existingPayment } = await supabaseServer
-      .from('payments')
-      .select('id')
-      .eq('paystack_reference', reference)
-      .single();
+    // ✅ All checks passed - generate stateless cryptographic token
+    const token = signToken(email.toLowerCase(), reference);
 
-    if (existingPayment) {
-      console.warn(`[PAYMENT] Duplicate payment reference detected: ${reference}`);
-      // Still return success to avoid confusing the client (idempotent)
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Payment already processed' 
-      });
-    }
-
-    // ✅ All checks passed - activate Pro status
-    console.log(`[PAYMENT] Activating Pro for user: ${session.user.id}`);
-
-    // Record payment in audit table
-    const { error: paymentError } = await supabaseServer
-      .from('payments')
-      .insert({
-        user_id: session.user.id,
-        paystack_reference: reference,
-        amount: transaction.amount,
-        currency: transaction.currency,
-        customer_email: transaction.customer.email,
-        status: 'completed',
-        metadata: {
-          authorization: transaction.authorization,
-          channel: transaction.channel,
-          ip_address: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip'),
-        }
-      });
-
-    if (paymentError) {
-      console.error('[PAYMENT] Failed to record payment:', paymentError);
-      // Still try to upgrade user despite logging failure
-    }
-
-    // Update user Pro status
-    const { error: updateError } = await supabaseServer
-      .from('profiles')
-      .update({ 
-        is_pro: true,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', session.user.id);
-
-    if (updateError) {
-      console.error('[PAYMENT] Failed to update Pro status:', updateError);
-      return NextResponse.json({ error: 'Failed to activate Pro status' }, { status: 500 });
-    }
-
-    // Clean up any pending activation markers
-    // (Client should do this, but we ensure it server-side)
-    
-    console.log(`[PAYMENT] ✅ Pro status activated for ${session.user.email}`);
+    console.log(`[PAYMENT] ✅ Pro status activated for ${email}`);
 
     return NextResponse.json({
       success: true,
       message: 'Pro status activated successfully',
-      user_id: session.user.id,
+      token,
+      email: email.toLowerCase()
     });
 
   } catch (error: any) {

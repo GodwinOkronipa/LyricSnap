@@ -10,9 +10,6 @@ import { Button } from '@/components/ui/button';
 import { JsonLd, webAppSchema, howToSchema } from '@/components/JsonLd';
 import { analytics } from '@/lib/analytics';
 import { ListMusic, ChevronRight, X, Clock } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { AuthModal } from '@/components/AuthModal';
-
 import dynamic from 'next/dynamic';
 import { useDebounce } from '@/hooks/useDebounce';
 
@@ -33,16 +30,30 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [usageCount, setUsageCount] = useState(0);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [user, setUser] = useState<any>(null);
   const [isPro, setIsPro] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
-  const [pendingProActivation, setPendingProActivation] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [restoreEmail, setRestoreEmail] = useState('');
+  const [restoreReference, setRestoreReference] = useState('');
+  const [restoring, setRestoring] = useState(false);
   const [searchMode, setSearchMode] = useState<'tracks' | 'lyrics'>('tracks');
   const [cachedArtworkDataUri, setCachedArtworkDataUri] = useState<string | undefined>(undefined);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileScale, setMobileScale] = useState(1);
   const mobilePlayerRef = useRef<HTMLDivElement>(null);
+  
+  // Studio Customization State & Refs
+  const [blurAmount, setBlurAmount] = useState(80);
+  const [vignette, setVignette] = useState(40);
+  const [template, setTemplate] = useState<'classic' | 'modern'>('classic');
+  const [waitlistJoined, setWaitlistJoined] = useState(false);
+
+  const previewRef = useRef<HTMLDivElement>(null);
+  const initialLoadRef = useRef(false);
+
+  const scrollToPro = () => {
+    document.getElementById('studio-pro')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024);
@@ -58,41 +69,49 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     if (w > 0) setMobileScale(w / 390);
   }, [isMobile, selectedSong]);
   
-  // Load pending activation on mount
+  // Load guest history, usage count, verify pro token, and handle pending pro activation on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      // 1. Load usage count
+      const savedUsage = localStorage.getItem('lyric_snap_usage');
+      if (savedUsage) setUsageCount(parseInt(savedUsage, 10));
+
+      // 2. Load search/generation history
+      const savedHistory = JSON.parse(localStorage.getItem('lyric_snap_history') || '[]');
+      setHistory(savedHistory);
+
+      // 3. Verify Pro token status statelessly
+      const savedToken = localStorage.getItem('lyric_snap_pro_token');
+      if (savedToken) {
+        setIsPro(localStorage.getItem('lyric_snap_pro') === 'true');
+        // Validate token with server in background to keep it secure
+        fetch(`/api/auth/status?token=${encodeURIComponent(savedToken)}`)
+          .then(res => res.json())
+          .then(data => {
+            setIsPro(data.is_pro);
+            localStorage.setItem('lyric_snap_pro', data.is_pro ? 'true' : 'false');
+            if (!data.is_pro) {
+              localStorage.removeItem('lyric_snap_pro_token');
+              localStorage.removeItem('lyric_snap_pro_email');
+              localStorage.removeItem('lyric_snap_pro_reference');
+            }
+          })
+          .catch(err => console.error('Failed to verify token:', err));
+      } else {
+        setIsPro(false);
+      }
+
+      // 4. Handle pending activations
       const pending = localStorage.getItem('pending_pro_activation');
-      if (pending === 'true') setPendingProActivation(true);
+      if (pending === 'true') {
+        const reference = localStorage.getItem('pending_payment_reference');
+        const email = localStorage.getItem('pending_payment_email');
+        if (reference && email) {
+          verifyPendingPayment(reference, email);
+        }
+      }
     }
   }, []);
-
-  // Check auth status on mount and after auth changes (server-side authority)
-  useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const response = await fetch('/api/auth/status');
-        const data = await response.json();
-        setIsPro(data.is_pro);
-      } catch (err) {
-        console.error('Failed to check auth status:', err);
-      }
-    };
-
-    checkStatus();
-  }, [user]);
-  
-  // Studio Customization State
-  const [blurAmount, setBlurAmount] = useState(80);
-  const [vignette, setVignette] = useState(40);
-  const [template, setTemplate] = useState<'classic' | 'modern'>('classic');
-  const [waitlistJoined, setWaitlistJoined] = useState(false);
-
-  const scrollToPro = () => {
-    document.getElementById('studio-pro')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  const previewRef = useRef<HTMLDivElement>(null);
-  const initialLoadRef = useRef(false);
 
   // Initial song load
   useEffect(() => {
@@ -119,124 +138,71 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     }
   }, [initialSong]);
 
-  // Auth & Session management
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }: { data: { session: any } }) => {
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-      if (currentUser) {
-        // ✅ Server-side authority check instead of client-side
-        checkProsStatus();
-        fetchUserProfile(currentUser.id, currentUser.email!);
-        // Handle pending activation if user was already logged in but refresh happened
-        if (pendingProActivation) {
-          verifyPendingPayment();
-        }
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-      if (currentUser) {
-        // ✅ Server-side authority check instead of client-side
-        checkProsStatus();
-        fetchUserProfile(currentUser.id, currentUser.email!);
-        if (pendingProActivation) {
-           verifyPendingPayment();
-           setPendingProActivation(false);
-        }
-      }
-      else setIsPro(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [pendingProActivation]);
-
-  // 🛡️ Check pro status from server (source of truth)
-  const checkProsStatus = async () => {
-    try {
-      const response = await fetch('/api/auth/status');
-      const data = await response.json();
-      console.log('[Auth Status]', data); // Debug logging
-      console.log('[Pro Status] Setting isPro to:', data.is_pro);
-      setIsPro(data.is_pro);
-      if (data.is_admin) {
-        console.log('✅ Admin user detected - Pro status FORCED to true');
-        setIsPro(true); // Force true for admins
-      }
-    } catch (err) {
-      console.error('Failed to check pro status:', err);
-    }
-  };
-
-  // 🛡️ Verify pending payment reference after signup
-  const verifyPendingPayment = async () => {
-    const reference = localStorage.getItem('pending_payment_reference');
-    if (!reference) return;
-
+  const verifyPendingPayment = async (reference: string, email: string) => {
     try {
       const response = await fetch('/api/verify-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference }),
+        body: JSON.stringify({ reference, email }),
       });
 
       if (response.ok) {
         const result = await response.json();
-        if (result.success) {
+        if (result.success && result.token) {
           setIsPro(true);
+          localStorage.setItem('lyric_snap_pro', 'true');
+          localStorage.setItem('lyric_snap_pro_token', result.token);
+          localStorage.setItem('lyric_snap_pro_email', email);
+          localStorage.setItem('lyric_snap_pro_reference', reference);
+          
+          localStorage.removeItem('pending_pro_activation');
           localStorage.removeItem('pending_payment_reference');
+          localStorage.removeItem('pending_payment_email');
+          return true;
         }
       }
     } catch (err) {
       console.error('Failed to verify pending payment:', err);
     }
+    return false;
   };
 
-  const fetchUserProfile = async (userId: string, email: string) => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('usage_count')
-      .eq('id', userId)
-      .single();
-    
-    if (data) {
-      setUsageCount(data.usage_count);
-      // 🛡️ Pro status is determined server-side only via /api/auth/status
+  const handleRestorePurchase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!restoreReference.trim() || !restoreEmail.trim()) {
+      alert('Please enter both your email and payment reference.');
+      return;
     }
-    fetchHistory(userId);
-  };
 
-  const fetchHistory = async (userId: string) => {
-    const { data } = await supabase
-      .from('generations')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    if (data) setHistory(data);
-  };
+    setRestoring(true);
+    try {
+      const response = await fetch('/api/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: restoreReference.trim(), email: restoreEmail.trim() }),
+      });
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-  };
-
-  const syncGuestData = async (userId: string) => {
-    const guestHistory = JSON.parse(localStorage.getItem('lyric_snap_history') || '[]');
-    if (guestHistory.length > 0) {
-      const gToInsert = guestHistory.map((item: any) => ({
-        user_id: userId,
-        title: item.title,
-        artist: item.artist,
-        artwork: item.artwork,
-        lyrics: item.lyrics,
-        created_at: item.created_at
-      }));
-      
-      await supabase.from('generations').insert(gToInsert);
-      localStorage.removeItem('lyric_snap_history');
-      localStorage.removeItem('lyric_snap_usage');
-      fetchHistory(userId);
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.token) {
+          setIsPro(true);
+          localStorage.setItem('lyric_snap_pro', 'true');
+          localStorage.setItem('lyric_snap_pro_token', result.token);
+          localStorage.setItem('lyric_snap_pro_email', restoreEmail.trim());
+          localStorage.setItem('lyric_snap_pro_reference', restoreReference.trim());
+          alert('Pro status successfully restored! Thank you.');
+          setShowUpgradeModal(false);
+        } else {
+          alert('Could not find a successful transaction with these details.');
+        }
+      } else {
+        const err = await response.json();
+        alert(`Restore failed: ${err.error || 'Invalid details'}`);
+      }
+    } catch (err: any) {
+      alert(`Error restoring purchase: ${err.message}`);
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -275,45 +241,50 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const onSuccess = async (reference: any) => {
     console.log('[Payment] Verifying payment:', reference);
     
-    if (!reference) {
+    const refStr = reference?.reference || reference;
+    if (!refStr) {
       console.error('[Payment] No reference received from Paystack');
       alert('Payment verification failed. Please contact support.');
       return;
     }
 
     try {
-      if (!user) {
-        // Guest user - store reference for verification after signup
-        setPendingProActivation(true);
-        localStorage.setItem('pending_pro_activation', 'true');
-        localStorage.setItem('pending_payment_reference', reference);
-        setShowAuthModal(true);
-        setShowUpgradeModal(false);
-      } else {
-        // Authenticated user - verify payment server-side
-        const response = await fetch('/api/verify-payment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reference }),
-        });
+      const email = emailInput.trim();
+      if (!email || !email.includes('@')) {
+        alert('Please enter a valid email address before proceeding.');
+        return;
+      }
 
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Payment verification failed');
-        }
+      // Verify payment with server
+      const response = await fetch('/api/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: refStr, email }),
+      });
 
-        const result = await response.json();
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Payment verification failed');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.token) {
+        console.log('[Payment] ✅ Pro status activated');
+        setIsPro(true);
+        localStorage.setItem('lyric_snap_pro', 'true');
+        localStorage.setItem('lyric_snap_pro_token', result.token);
+        localStorage.setItem('lyric_snap_pro_email', email);
+        localStorage.setItem('lyric_snap_pro_reference', refStr);
+
+        localStorage.removeItem('pending_pro_activation');
+        localStorage.removeItem('pending_payment_reference');
+        localStorage.removeItem('pending_payment_email');
         
-        if (result.success) {
-          console.log('[Payment] ✅ Pro status activated');
-          setIsPro(true);
-          setPendingProActivation(false);
-          localStorage.removeItem('pending_pro_activation');
-          localStorage.removeItem('pending_payment_reference');
-          setShowUpgradeModal(false);
-        } else {
-          throw new Error('Payment verification was not successful');
-        }
+        setShowUpgradeModal(false);
+        alert('Upgrade successful! You are now a Studio Pro user.');
+      } else {
+        throw new Error('Payment verification was not successful');
       }
     } catch (err: any) {
       console.error('[Payment] Verification error:', err);
@@ -324,29 +295,6 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
   const onClose = () => {
     console.log('[Payment] Payment modal closed');
   };
-
-  const updateProStatus = async (userId: string) => {
-    // 🛡️ This function is now only called after server-side verification
-    // For backward compatibility, verify again on the server
-    const response = await fetch('/api/auth/status');
-    const data = await response.json();
-    
-    if (data.is_pro) {
-      setIsPro(true);
-      setPendingProActivation(false);
-      localStorage.removeItem('pending_pro_activation');
-    }
-  };
-
-  // handleUpgradeClick no longer needed as a separate function
-
-  // Load guest usage count on mount if not logged in
-  useEffect(() => {
-    if (!user) {
-      const savedUsage = localStorage.getItem('lyric_snap_usage');
-      if (savedUsage) setUsageCount(parseInt(savedUsage, 10));
-    }
-  }, [user]);
 
   // Auto-scroll to preview on mobile when a song is selected
   useEffect(() => {
@@ -514,9 +462,20 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
     if (!selectedSong) return;
 
     // Re-check pro status right before download
-    const statusResponse = await fetch('/api/auth/status');
-    const statusData = await statusResponse.json();
-    const currentlyPro = statusData.is_pro;
+    let currentlyPro = isPro;
+    const token = localStorage.getItem('lyric_snap_pro_token');
+    if (token) {
+      try {
+        const statusResponse = await fetch(`/api/auth/status?token=${encodeURIComponent(token)}`);
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          currentlyPro = statusData.is_pro;
+          setIsPro(currentlyPro);
+        }
+      } catch (err) {
+        console.error('Failed to verify Pro status before download:', err);
+      }
+    }
 
     if (!currentlyPro && usageCount >= 3) {
       setShowUpgradeModal(true);
@@ -558,51 +517,24 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
 
       analytics.trackDownloadComplete(selectedSong.title, selectedSong.artist);
 
-      // ── 6. Log the generation server-side ──────────────────────────────
-      const logRes = await fetch('/api/log-generation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: selectedSong.title,
-          artist: selectedSong.artist,
-          artwork: selectedSong.artwork,
-          lyrics: selectedLines,
-        }),
-      });
-
-      const logData = await logRes.json();
-
-      if (logRes.status === 403) {
-        // Edge case: server says limit hit (e.g. race condition)
-        setShowUpgradeModal(true);
-        return;
-      }
-
-      // ── 7. Update local state ───────────────────────────────────────────
+      // ── 5. Update local state ───────────────────────────────────────────
       const newCount = usageCount + 1;
+      localStorage.setItem('lyric_snap_usage', newCount.toString());
+      setUsageCount(newCount);
 
-      if (user) {
-        // Server handled the DB write; just refresh local profile state
-        if (logData.usage_count !== undefined) {
-          setUsageCount(logData.usage_count);
-        } else {
-          setUsageCount(newCount);
-          fetchUserProfile(user.id, user.email!);
-        }
-      } else {
-        // Guest — manage state in localStorage
-        localStorage.setItem('lyric_snap_usage', newCount.toString());
-        const guestHistory = JSON.parse(localStorage.getItem('lyric_snap_history') || '[]');
-        guestHistory.unshift({
-          title: selectedSong.title,
-          artist: selectedSong.artist,
-          artwork: selectedSong.artwork,
-          lyrics: selectedLines,
-          created_at: new Date().toISOString(),
-        });
-        localStorage.setItem('lyric_snap_history', JSON.stringify(guestHistory.slice(0, 5)));
-        setUsageCount(newCount);
-      }
+      const guestHistory = JSON.parse(localStorage.getItem('lyric_snap_history') || '[]');
+      const newHistoryItem = {
+        id: (new Date()).getTime().toString(),
+        title: selectedSong.title,
+        artist: selectedSong.artist,
+        artwork: selectedSong.artwork,
+        lyrics: selectedLines,
+        created_at: new Date().toISOString(),
+      };
+      guestHistory.unshift(newHistoryItem);
+      const truncatedHistory = guestHistory.slice(0, 10);
+      localStorage.setItem('lyric_snap_history', JSON.stringify(truncatedHistory));
+      setHistory(truncatedHistory);
     } catch (err: any) {
       console.error('[Download] Error:', err);
       analytics.trackError('generation_failed', err.message);
@@ -669,53 +601,93 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                    <div className="w-24 h-24 bg-gradient-to-tr from-pink-600 via-pink-500 to-orange-400 rounded-[32px] flex items-center justify-center mx-auto shadow-2xl shadow-pink-500/40 transform -rotate-3 overflow-hidden">
                       <Sparkles className="w-12 h-12 text-white drop-shadow-[0_4px_12px_rgba(255,255,255,0.4)]" />
                    </div>
-                   <motion.div 
-                    animate={{ scale: [1, 1.1, 1] }}
-                    transition={{ repeat: Infinity, duration: 2 }}
-                    className="absolute -top-3 -right-3 w-8 h-8 bg-black rounded-full flex items-center justify-center shadow-lg ring-1 ring-white/10"
-                   >
-                     🚀
-                   </motion.div>
-                 </div>
-
-                 <div className="space-y-3">
-                   <h3 className="text-4xl font-heading tracking-tighter leading-tight">Elevate Your <br /> <span className="text-pink-500 italic">Musical Brand.</span></h3>
-                   <p className="text-white/40 font-medium leading-relaxed max-w-[280px] mx-auto text-sm">
-                     {user ? "Upgrade now to unlock all professional studio features forever." : "Guests: You'll create your account after checkout to secure your Studio Pro status."}
-                   </p>
-                 </div>
-
-                 <div className="grid grid-cols-1 gap-4 text-left py-4">
-                   {[
-                     { icon: Zap, text: "Unlimited High-Res Generations" },
-                     { icon: Music, text: "All Premium Design Templates" },
-                     { icon: Shield, text: "Cloud Sync & History Access" }
-                   ].map((item, i) => (
-                     <div key={i} className="flex items-center gap-3 bg-white/5 p-3.5 rounded-2xl ring-1 ring-white/5 group hover:bg-white/[0.08] transition-colors">
-                       <div className="p-2 bg-pink-500/10 text-pink-500 rounded-lg group-hover:scale-110 transition-transform">
-                          <item.icon className="w-4 h-4" />
-                       </div>
-                       <span className="text-xs font-bold tracking-tight">{item.text}</span>
-                     </div>
-                   ))}
-                 </div>
-
-                 <div className="space-y-4">
-                    <PaystackButton 
-                      email={user?.email || ""}
-                      amount={paystackAmount}
-                      onSuccess={onSuccess}
-                      onClose={onClose}
-                      className="w-full h-16 bg-white text-black hover:bg-pink-50 rounded-full font-black text-xl shadow-[0_15px_40px_-5px_rgba(255,255,255,0.1)] transition-all active:scale-[0.98] group/pay"
+                    <motion.div 
+                     animate={{ scale: [1, 1.1, 1] }}
+                     transition={{ repeat: Infinity, duration: 2 }}
+                     className="absolute -top-3 -right-3 w-8 h-8 bg-black rounded-full flex items-center justify-center shadow-lg ring-1 ring-white/10"
                     >
-                      <span className="flex items-center justify-center gap-3">
-                        Upgrade for $0.49
-                        <ChevronRight className="w-5 h-5 group-hover/pay:translate-x-1 transition-transform" />
-                      </span>
-                    </PaystackButton>
-                    
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/20">One-time payment • Lifetime Access</p>
-                 </div>
+                      🚀
+                    </motion.div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h3 className="text-4xl font-heading tracking-tighter leading-tight">Elevate Your <br /> <span className="text-pink-500 italic">Musical Brand.</span></h3>
+                    <p className="text-white/40 font-medium leading-relaxed max-w-[280px] mx-auto text-sm">
+                      Upgrade now to unlock all professional studio features forever.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 text-left py-4">
+                    {[
+                      { icon: Zap, text: "Unlimited High-Res Generations" },
+                      { icon: Music, text: "All Premium Design Templates" },
+                      { icon: Shield, text: "Offline History & Customization" }
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-center gap-3 bg-white/5 p-3.5 rounded-2xl ring-1 ring-white/5 group hover:bg-white/[0.08] transition-colors">
+                        <div className="p-2 bg-pink-500/10 text-pink-500 rounded-lg group-hover:scale-110 transition-transform">
+                           <item.icon className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-bold tracking-tight">{item.text}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-4">
+                     {!isPro && (
+                       <input 
+                         type="email" 
+                         placeholder="Enter email for receipt & activation" 
+                         value={emailInput}
+                         onChange={(e) => setEmailInput(e.target.value)}
+                         className="w-full h-12 bg-white/5 border border-white/10 rounded-full px-6 text-sm text-white focus:outline-none focus:border-pink-500 transition-colors placeholder:text-white/20 text-center font-bold"
+                       />
+                     )}
+                     <PaystackButton 
+                       email={emailInput}
+                       amount={paystackAmount}
+                       onSuccess={onSuccess}
+                       onClose={onClose}
+                       disabled={!isPro && (!emailInput.includes('@') || emailInput.trim().length < 5)}
+                       className="w-full h-16 bg-white text-black hover:bg-pink-50 rounded-full font-black text-xl shadow-[0_15px_40px_-5px_rgba(255,255,255,0.1)] transition-all active:scale-[0.98] group/pay disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
+                       <span className="flex items-center justify-center gap-3">
+                         {isPro ? 'You are Pro' : 'Upgrade for $0.49'}
+                         <ChevronRight className="w-5 h-5 group-hover/pay:translate-x-1 transition-transform" />
+                       </span>
+                     </PaystackButton>
+                     
+                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/20">One-time payment • Lifetime Access</p>
+                  </div>
+
+                  {/* Restore Purchase Section */}
+                  {!isPro && (
+                    <form onSubmit={handleRestorePurchase} className="pt-4 border-t border-white/5 space-y-3">
+                      <p className="text-xs font-bold text-white/40">Already purchased? Restore Pro status</p>
+                      <div className="flex flex-col gap-2">
+                        <input 
+                          type="email" 
+                          placeholder="Your purchase email" 
+                          value={restoreEmail}
+                          onChange={(e) => setRestoreEmail(e.target.value)}
+                          className="w-full h-10 bg-white/5 border border-white/10 rounded-xl px-4 text-xs text-white focus:outline-none focus:border-pink-500 transition-colors placeholder:text-white/20 text-center"
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="Paystack reference" 
+                          value={restoreReference}
+                          onChange={(e) => setRestoreReference(e.target.value)}
+                          className="w-full h-10 bg-white/5 border border-white/10 rounded-xl px-4 text-xs text-white focus:outline-none focus:border-pink-500 transition-colors placeholder:text-white/20 text-center"
+                        />
+                        <button
+                          type="submit"
+                          disabled={restoring}
+                          className="w-full h-10 bg-pink-600 hover:bg-pink-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+                        >
+                          {restoring ? 'Verifying...' : 'Restore Pro'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                  
                  {/* Better Trust Badges */}
                  <div className="flex flex-col items-center gap-4 pt-6 mt-8 border-t border-white/5">
@@ -736,18 +708,6 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
       </AnimatePresence>
 
 
-      {/* Auth Modal */}
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={() => {
-          setShowAuthModal(false);
-          // Sync guest history on first login
-          if (user) syncGuestData(user.id);
-        }}
-        initialMessage="Create an account to unlock Studio Pro and save your history."
-      />
-
       {/* Navigation */}
       <nav className="sticky top-0 z-50 w-full bg-black/60 backdrop-blur-xl border-b border-white/5">
         <div className="flex items-center justify-between px-8 py-5 max-w-7xl mx-auto">
@@ -762,44 +722,18 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
             
-            {user ? (
-              <div className="flex items-center gap-4">
-                <span className="text-white/40 text-xs font-bold truncate max-w-[150px]">{user.email}</span>
-                <button 
-                  onClick={handleSignOut}
-                  className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
-                  aria-label="Sign Out"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </div>
-            ) : (
-              <Button 
-                onClick={() => setShowAuthModal(true)}
-                variant="outline" 
-                className="border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-full px-6 transition-all active:scale-95 backdrop-blur-sm"
-              >
-                Sign In
-              </Button>
+            {isPro && (
+              <span className="bg-pink-500/10 text-pink-500 border border-pink-500/20 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider">
+                Studio Pro
+              </span>
             )}
           </div>
 
           <div className="md:hidden flex items-center gap-2">
-            {user ? (
-              <button 
-                onClick={handleSignOut}
-                className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
-                aria-label="Sign Out"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            ) : (
-              <button 
-                onClick={() => setShowAuthModal(true)}
-                className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full hover:bg-indigo-700 transition-colors active:scale-95"
-              >
-                Sign In
-              </button>
+            {isPro && (
+              <span className="bg-pink-500/10 text-pink-500 border border-pink-500/20 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider">
+                Pro
+              </span>
             )}
           </div>
         </div>
@@ -820,8 +754,8 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
               Stop using Spotify's basic screenshot UI. Create stunning, premium music cards for Instagram and TikTok in seconds.
             </p>
 
-            {/* MY SNAPS (HISTORY) - MOVED TO TOP FOR LOGGED IN USERS */}
-            {user && (
+            {/* MY SNAPS (HISTORY) - SHOWN TO ALL USERS WITH SAVED SNAPS */}
+            {history.length > 0 && (
               <section id="history" className="mt-16 mb-24 py-12 bg-white/[0.02] border border-white/10 rounded-[48px] backdrop-blur-3xl shadow-2xl relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 pointer-events-none" />
                 <div className="max-w-7xl mx-auto px-8 relative z-10">
@@ -833,7 +767,7 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                       <div className="space-y-1 text-left">
                         <h2 className="text-3xl font-heading tracking-tight">Your Gallery</h2>
                         <p className="text-white/30 text-[10px] font-black uppercase tracking-[0.2em]">
-                          Welcome back, {user.email?.split('@')[0]}
+                          {isPro ? "Studio Pro Gallery" : "Recent Generations"}
                         </p>
                       </div>
                     </div>
@@ -920,11 +854,12 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                                 Edit
                             </button>
                             <button 
-                              onClick={async (e) => {
+                              onClick={(e) => {
                                 e.stopPropagation();
                                 if (confirm('Delete this snap?')) {
-                                  await supabase.from('generations').delete().eq('id', item.id);
-                                  fetchHistory(user.id);
+                                  const updatedHistory = history.filter(h => h.id !== item.id);
+                                  localStorage.setItem('lyric_snap_history', JSON.stringify(updatedHistory));
+                                  setHistory(updatedHistory);
                                 }
                               }}
                               className="w-8 h-8 bg-black/40 backdrop-blur-md rounded-lg flex items-center justify-center hover:bg-red-500/80 transition-colors"
@@ -1370,28 +1305,26 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
           </motion.div>
         </section>
 
-        {/* HOW IT WORKS (Only for Guests) */}
-        {!user && (
-          <section id="how-it-works" className="py-24 bg-white/[0.02] border-y border-white/10 backdrop-blur-3xl relative overflow-hidden">
-            <div className="max-w-7xl mx-auto px-4 md:px-8 relative z-10">
-              <h2 className="text-5xl md:text-6xl font-heading text-center mb-16 md:mb-24 tracking-tighter">How it Works</h2>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8">
-                {[
-                  { step: "01", title: "Search", desc: "Paste a song link or search from 100M+ tracks." },
-                  { step: "02", title: "Customize", desc: "Select the lyrics that hit different." },
-                  { step: "03", title: "Render", desc: "Our engine crafts a pixel-perfect image." },
-                  { step: "04", title: "Share", desc: "Download & flex on IG or TikTok." }
-                ].map((item, i) => (
-                  <div key={i} className="relative p-6 bg-white/[0.08] border border-white/10 rounded-[40px] md:rounded-[48px] group transition-all hover:bg-white/15 h-full backdrop-blur-md shadow-xl flex flex-col justify-center text-center md:text-left md:p-12">
-                    <span className="text-4xl md:text-7xl font-heading opacity-30 mb-2 md:mb-8 block transition-opacity group-hover:opacity-50">{item.step}</span>
-                    <h3 className="text-lg md:text-2xl font-bold mb-2 md:mb-4 tracking-tight">{item.title}</h3>
-                    <p className="text-white/40 leading-relaxed text-[12px] md:text-sm">{item.desc}</p>
-                  </div>
-                ))}
-              </div>
+        {/* HOW IT WORKS */}
+        <section id="how-it-works" className="py-24 bg-white/[0.02] border-y border-white/10 backdrop-blur-3xl relative overflow-hidden">
+          <div className="max-w-7xl mx-auto px-4 md:px-8 relative z-10">
+            <h2 className="text-5xl md:text-6xl font-heading text-center mb-16 md:mb-24 tracking-tighter">How it Works</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8">
+              {[
+                { step: "01", title: "Search", desc: "Paste a song link or search from 100M+ tracks." },
+                { step: "02", title: "Customize", desc: "Select the lyrics that hit different." },
+                { step: "03", title: "Render", desc: "Our engine crafts a pixel-perfect image." },
+                { step: "04", title: "Share", desc: "Download & flex on IG or TikTok." }
+              ].map((item, i) => (
+                <div key={i} className="relative p-6 bg-white/[0.08] border border-white/10 rounded-[40px] md:rounded-[48px] group transition-all hover:bg-white/15 h-full backdrop-blur-md shadow-xl flex flex-col justify-center text-center md:text-left md:p-12">
+                  <span className="text-4xl md:text-7xl font-heading opacity-30 mb-2 md:mb-8 block transition-opacity group-hover:opacity-50">{item.step}</span>
+                  <h3 className="text-lg md:text-2xl font-bold mb-2 md:mb-4 tracking-tight">{item.title}</h3>
+                  <p className="text-white/40 leading-relaxed text-[12px] md:text-sm">{item.desc}</p>
+                </div>
+              ))}
             </div>
-          </section>
-        )}
+          </div>
+        </section>
 
 
         {/* FEATURES */}
@@ -1527,18 +1460,15 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
                     ✨ Priority Studio Rendering
                   </li>
                 </ul>
-                <PaystackButton 
-                  email={user?.email || ""}
-                  amount={paystackAmount}
-                  onSuccess={onSuccess}
-                  onClose={onClose}
-                  className="w-full h-20 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] transition-all active:scale-[0.98] group/btn border border-white/10"
+                <Button 
+                  onClick={() => isPro ? alert('You are already Pro!') : setShowUpgradeModal(true)}
+                  className="w-full h-20 bg-black text-white hover:bg-black/90 rounded-full font-black text-xl shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] transition-all active:scale-[0.98] group/btn border border-white/10 cursor-pointer"
                  >
                   <span className="flex items-center justify-center gap-2">
-                    {user ? (isPro ? 'Already Pro' : 'Upgrade to Pro') : 'Unlock Studio Pro'}
+                    {isPro ? 'Already Pro' : 'Unlock Studio Pro'}
                     <ChevronRight className="w-5 h-5 group-hover/btn:translate-x-1 transition-transform" />
                   </span>
-                 </PaystackButton>
+                 </Button>
 
                  
                  {/* Trust Badges */}
@@ -1596,11 +1526,11 @@ export default function LyricSnapClient({ initialSong }: { initialSong?: Song | 
               </div>
               <div>
                 <h4 className="font-bold text-lg mb-4 text-white">Is there a limit on free screenshots?</h4>
-                <p className="text-sm text-white/40 leading-relaxed">Guest users can generate 1 free high-res snap. To unlock unlimited exports and remove the watermark, you can upgrade to Studio Pro for a one-time fee of $0.99.</p>
+                <p className="text-sm text-white/40 leading-relaxed">Free users can generate up to 3 free high-res snaps in their browser. To unlock unlimited exports and remove the watermark, you can upgrade to Studio Pro for a one-time fee of $0.49.</p>
               </div>
               <div>
                 <h4 className="font-bold text-lg mb-4 text-white">Can I save my lyric snaps for later?</h4>
-                <p className="text-sm text-white/40 leading-relaxed">Yes! With Studio Pro, all your generations are synced to your account. You can view, re-download, or edit them anytime from your private dashboard.</p>
+                <p className="text-sm text-white/40 leading-relaxed">Yes! All your generations are saved directly in your browser's local history. You can view, re-download, or edit them anytime from your gallery on this device.</p>
               </div>
             </div>
           </div>

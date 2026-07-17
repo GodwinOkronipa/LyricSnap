@@ -12,6 +12,7 @@ interface PaystackButtonProps {
   onClose: () => void;
   className?: string;
   children: React.ReactNode;
+  disabled?: boolean;
 }
 
 export default function PaystackButton({ 
@@ -20,7 +21,8 @@ export default function PaystackButton({
   onSuccess, 
   onClose, 
   className,
-  children 
+  children,
+  disabled = false
 }: PaystackButtonProps) {
   const config = React.useMemo(() => {
     // 🍎 Note: Apple Pay may not be available for all currencies/regions
@@ -48,8 +50,9 @@ export default function PaystackButton({
 
   return (
     <Button 
-      onClick={() => initializePayment(onSuccess, onClose)}
+      onClick={() => !disabled && initializePayment(onSuccess, onClose)}
       className={className}
+      disabled={disabled}
     >
       {children}
     </Button>
